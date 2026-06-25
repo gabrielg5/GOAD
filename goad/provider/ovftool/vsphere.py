@@ -49,13 +49,35 @@ class VsphereProvider(Provider):
         ]
         return all(checks)
 
+    @staticmethod
+    def _url_quote(value):
+        return quote(value, safe='')
+
+    @staticmethod
+    def _sanitize_vi_locator(value):
+        if not value.startswith('vi://'):
+            return value
+
+        body = value[len('vi://'):]
+        authority, separator, path = body.partition('/')
+        if '@' not in authority:
+            return value
+
+        host = authority.rsplit('@', 1)[1]
+        return f'vi://***@{host}{separator}{path}'
+
     def _run(self, command, env=None):
         sanitized = []
         for arg in command:
             if self.password:
                 arg = arg.replace(self.password, '***')
+                arg = arg.replace(self._url_quote(self.password), '***')
+            if self.username:
+                arg = arg.replace(self._url_quote(self.username), '***')
             if self.guest_password and arg != self.command.vagrant_bin:
                 arg = arg.replace(self.guest_password, '***')
+                arg = arg.replace(self._url_quote(self.guest_password), '***')
+            arg = self._sanitize_vi_locator(arg)
             sanitized.append(arg)
         Log.info('CWD: ' + Utils.get_relative_path(str(self.path)))
         Log.cmd(' '.join(shlex.quote(arg) for arg in sanitized))
@@ -106,8 +128,8 @@ class VsphereProvider(Provider):
             if self.ovftool_target.startswith('vi://'):
                 return self.ovftool_target
             target = self.ovftool_target.strip('/')
-            return f'vi://{quote(self.username)}:{quote(self.password)}@{self.server}/{target}'
-        return f'vi://{quote(self.username)}:{quote(self.password)}@{self.server}/'
+            return f'vi://{self._url_quote(self.username)}:{self._url_quote(self.password)}@{self.server}/{target}'
+        return f'vi://{self._url_quote(self.username)}:{self._url_quote(self.password)}@{self.server}/'
 
     @staticmethod
     def _range_from_ip(ip):
@@ -300,6 +322,11 @@ class VsphereProvider(Provider):
         if not boxes:
             Log.error('No VM to deploy')
             return False
+        if not self.ovftool_target:
+            Log.warning(
+                'vsphere_ovftool_target is empty; this only works when vsphere_server '
+                'is a direct ESXi host. For vCenter, set the datacenter/host/cluster path.'
+            )
         for box in boxes:
             Log.info(f'Deploy {box["name"]} from {box["box"]}')
             if not self._deploy_box(box):

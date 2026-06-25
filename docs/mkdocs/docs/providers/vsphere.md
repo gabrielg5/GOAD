@@ -52,11 +52,21 @@ vsphere_govc_bin = govc
 
 If `vsphere_ipv4_gateway` or `vsphere_dns_server` is empty, GOAD derives it from `-ip` as `<ip_range>.1`.
 
-For a direct ESXi target, leave `vsphere_ovftool_target` empty. For vCenter, set the inventory path after the server, for example:
+For a direct ESXi target, leave `vsphere_ovftool_target` empty. For vCenter, this value is required; set the inventory path after the server. If it is empty, `ovftool` targets the vCenter root and can loop on the login prompt instead of deploying.
 
 ```ini
 vsphere_ovftool_target = Datacenter/host/Cluster/esxi.example.local
 ```
+
+Common vCenter target forms are:
+
+```ini
+vsphere_ovftool_target = Datacenter/host/Cluster
+vsphere_ovftool_target = Datacenter/host/Cluster/esxi.example.local
+vsphere_ovftool_target = Datacenter/host/Cluster/Resources/ResourcePool
+```
+
+Use the exact datacenter, cluster, host, and resource pool names from your vCenter inventory.
 
 VM names are prefixed with the GOAD instance id by default to avoid collisions.
 
