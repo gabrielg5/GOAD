@@ -66,7 +66,7 @@ class VsphereProvider(Provider):
         host = authority.rsplit('@', 1)[1]
         return f'vi://***@{host}{separator}{path}'
 
-    def _run(self, command, env=None):
+    def _sanitize_command(self, command):
         sanitized = []
         for arg in command:
             if self.password:
@@ -79,10 +79,28 @@ class VsphereProvider(Provider):
                 arg = arg.replace(self._url_quote(self.guest_password), '***')
             arg = self._sanitize_vi_locator(arg)
             sanitized.append(arg)
+        return sanitized
+
+    def _log_command(self, command):
+        sanitized = self._sanitize_command(command)
         Log.info('CWD: ' + Utils.get_relative_path(str(self.path)))
         Log.cmd(' '.join(shlex.quote(arg) for arg in sanitized))
+
+    def _run(self, command, env=None):
+        self._log_command(command)
         result = subprocess.run(command, cwd=self.path, env=env)
         return result.returncode == 0
+
+    def _capture(self, command, env=None):
+        self._log_command(command)
+        result = subprocess.run(command, cwd=self.path, env=env, capture_output=True, text=True)
+        if result.returncode != 0:
+            if result.stdout:
+                Log.basic(result.stdout.strip())
+            if result.stderr:
+                Log.error(result.stderr.strip())
+            return None
+        return result.stdout
 
     def _govc_env(self):
         env = os.environ.copy()
@@ -102,6 +120,9 @@ class VsphereProvider(Provider):
 
     def _run_govc(self, args):
         return self._run([self.govc_bin] + args, self._govc_env())
+
+    def _capture_govc(self, args):
+        return self._capture([self.govc_bin] + args, self._govc_env())
 
     def _run_govc_retry(self, args, tries=30, delay=10):
         for attempt in range(1, tries + 1):
@@ -223,6 +244,36 @@ class VsphereProvider(Provider):
             return self._bootstrap_windows_guest(vm_name, box)
         return self._bootstrap_linux_guest(vm_name, box)
 
+    def _network_devices(self, vm_name):
+        output = self._capture_govc(['device.ls', '-vm', vm_name])
+        if output is None:
+            return []
+
+        devices = []
+        for line in output.splitlines():
+            fields = line.split()
+            if not fields:
+                continue
+            device = fields[0]
+            if device.startswith('ethernet-') and device not in devices:
+                devices.append(device)
+        return devices
+
+    def _connect_network_devices(self, vm_name):
+        devices = self._network_devices(vm_name)
+        if not devices:
+            Log.error(f'No ethernet devices found on {vm_name}')
+            return False
+
+        result = True
+        for device in devices:
+            if self.network:
+                Log.info(f'Set {vm_name} {device} network to {self.network}')
+                result = self._run_govc(['vm.network.change', '-vm', vm_name, '-net', self.network, device]) and result
+            Log.info(f'Connect {vm_name} {device}')
+            result = self._run_govc(['device.connect', '-vm', vm_name, device]) and result
+        return result
+
     def _get_boxes(self):
         boxes_file = Path(self.path) / 'boxes.json'
         if not boxes_file.is_file():
@@ -313,7 +364,12 @@ class VsphereProvider(Provider):
             if not self._run_govc(args):
                 return False
 
+        if not self._connect_network_devices(vm_name):
+            return False
+
         if not self._run_govc(['vm.power', '-on', vm_name]):
+            return False
+        if not self._connect_network_devices(vm_name):
             return False
         return self._bootstrap_guest(vm_name, box)
 
