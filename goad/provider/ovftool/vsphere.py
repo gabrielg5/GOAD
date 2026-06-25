@@ -1,6 +1,7 @@
 import json
 import os
 import shlex
+import ipaddress
 import subprocess
 import time
 from pathlib import Path
@@ -175,18 +176,23 @@ class VsphereProvider(Provider):
     def _guest_login(self):
         return f'{self.guest_username}:{self.guest_password}'
 
+    @staticmethod
+    def _netmask_from_prefix(prefix_length):
+        return str(ipaddress.IPv4Network(f'0.0.0.0/{prefix_length}').netmask)
+
     def _bootstrap_windows_guest(self, vm_name, box):
         configure_script = Path(project_path) / 'vagrant' / 'ConfigureRemotingForAnsible.ps1'
         remote_configure_script = 'C:\\Windows\\Temp\\ConfigureRemotingForAnsible.ps1'
-        self._run_govc_retry([
+        if not self._run_govc_retry([
             'guest.upload',
             '-vm', vm_name,
             '-l', self._guest_login(),
             str(configure_script),
             remote_configure_script
-        ], tries=12, delay=10)
+        ], tries=12, delay=10):
+            return False
 
-        self._run_govc_retry([
+        if not self._run_govc_retry([
             'guest.start',
             '-vm', vm_name,
             '-l', self._guest_login(),
@@ -194,25 +200,26 @@ class VsphereProvider(Provider):
             '-ExecutionPolicy', 'Bypass',
             '-File', remote_configure_script,
             '-SkipNetworkProfileCheck'
-        ], tries=3, delay=10)
+        ], tries=3, delay=10):
+            return False
 
         gateway = self._gateway_for_box(box)
         dns_server = self._dns_for_box(box)
-        script = (
-            "$ErrorActionPreference='Stop';"
-            "$adapter=Get-NetAdapter | Where-Object {$_.Status -eq 'Up'} | Sort-Object ifIndex | Select-Object -First 1;"
-            "$idx=$adapter.ifIndex;"
-            "Get-NetIPAddress -InterfaceIndex $idx -AddressFamily IPv4 | Remove-NetIPAddress -Confirm:$false -ErrorAction SilentlyContinue;"
-            f"New-NetIPAddress -InterfaceIndex $idx -IPAddress '{box['ip']}' -PrefixLength {self.ipv4_prefix_length} -DefaultGateway '{gateway}';"
-            f"Set-DnsClientServerAddress -InterfaceIndex $idx -ServerAddresses '{dns_server}';"
+        netmask = self._netmask_from_prefix(self.ipv4_prefix_length)
+        command = (
+            'for /f "skip=3 tokens=1,2,3,*" %a in ('
+            "'netsh interface show interface'"
+            f') do if /I "%b"=="Connected" ('
+            f'netsh interface ipv4 set address name="%d" static {box["ip"]} {netmask} {gateway} 1 & '
+            f'netsh interface ipv4 set dnsservers name="%d" static {dns_server} primary'
+            ')'
         )
         return self._run_govc_retry([
             'guest.start',
             '-vm', vm_name,
             '-l', self._guest_login(),
-            'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
-            '-ExecutionPolicy', 'Bypass',
-            '-Command', script
+            'C:\\Windows\\System32\\cmd.exe',
+            '/c', command
         ], tries=6, delay=10)
 
     def _bootstrap_linux_guest(self, vm_name, box):
