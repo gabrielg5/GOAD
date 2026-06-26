@@ -29,7 +29,7 @@ Add or update the vSphere settings in `~/.goad/goad.ini`. The file is created th
 [vsphere]
 vsphere_server = vcenter.example.local
 vsphere_user = administrator@vsphere.local
-vsphere_password = password
+vsphere_password =
 vsphere_allow_unverified_ssl = true
 vsphere_datastore = datastore1
 vsphere_network = GOAD-LAN
@@ -51,6 +51,8 @@ vsphere_govc_bin = govc
 ```
 
 VM names are prefixed with the GOAD instance id by default to avoid collisions. See the next section for commands to discover target, datastore, network, and folder values.
+
+If `vsphere_password` is empty or still set to the generated placeholder value `password`, GOAD prompts for it when a vSphere command needs authentication. For non-interactive runs, set `VSPHERE_PASSWORD` or `GOVC_PASSWORD` in the environment instead.
 
 ## Discover vSphere values
 
@@ -91,7 +93,7 @@ Map the discovered values to `~/.goad/goad.ini` like this:
 [vsphere]
 vsphere_server = vcenter.example.local
 vsphere_user = administrator@vsphere.local
-vsphere_password = password
+vsphere_password =
 vsphere_allow_unverified_ssl = true
 vsphere_datastore = datastore1
 vsphere_network = GOAD-LAN

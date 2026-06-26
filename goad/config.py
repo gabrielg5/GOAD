@@ -83,7 +83,7 @@ class Config:
         config.add_section('vsphere')
         config.set('vsphere', 'vsphere_server', 'vcenter.example.local')
         config.set('vsphere', 'vsphere_user', 'administrator@vsphere.local')
-        config.set('vsphere', 'vsphere_password', 'password')
+        config.set('vsphere', 'vsphere_password', '')
         config.set('vsphere', 'vsphere_allow_unverified_ssl', 'true')
         config.set('vsphere', 'vsphere_datastore', 'datastore1')
         config.set('vsphere', 'vsphere_network', 'GOAD-LAN')

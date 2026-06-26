@@ -1,4 +1,5 @@
 import json
+import getpass
 import os
 import shlex
 import ipaddress
@@ -54,6 +55,23 @@ class VsphereProvider(Provider):
     def _url_quote(value):
         return quote(value, safe='')
 
+    def _password_needs_prompt(self):
+        if self.password is None:
+            return True
+        return self.password.strip() == '' or self.password == 'password'
+
+    def _ensure_password(self):
+        if not self._password_needs_prompt():
+            return self.password
+
+        env_password = os.environ.get('VSPHERE_PASSWORD') or os.environ.get('GOVC_PASSWORD')
+        if env_password:
+            self.password = env_password
+            return self.password
+
+        self.password = getpass.getpass(f'Enter vSphere password for {self.username}@{self.server}: ')
+        return self.password
+
     @staticmethod
     def _sanitize_vi_locator(value):
         if not value.startswith('vi://'):
@@ -104,10 +122,11 @@ class VsphereProvider(Provider):
         return result.stdout
 
     def _govc_env(self):
+        password = self._ensure_password()
         env = os.environ.copy()
         env['GOVC_URL'] = self.server
         env['GOVC_USERNAME'] = self.username
-        env['GOVC_PASSWORD'] = self.password
+        env['GOVC_PASSWORD'] = password
         env['GOVC_INSECURE'] = '1' if self.no_ssl_verify else '0'
         if self.datastore:
             env['GOVC_DATASTORE'] = self.datastore
@@ -146,12 +165,13 @@ class VsphereProvider(Provider):
         return f'{self._vm_prefix()}-{box["name"]}'
 
     def _target_url(self):
+        password = self._ensure_password()
         if self.ovftool_target:
             if self.ovftool_target.startswith('vi://'):
                 return self.ovftool_target
             target = self.ovftool_target.strip('/')
-            return f'vi://{self._url_quote(self.username)}:{self._url_quote(self.password)}@{self.server}/{target}'
-        return f'vi://{self._url_quote(self.username)}:{self._url_quote(self.password)}@{self.server}/'
+            return f'vi://{self._url_quote(self.username)}:{self._url_quote(password)}@{self.server}/{target}'
+        return f'vi://{self._url_quote(self.username)}:{self._url_quote(password)}@{self.server}/'
 
     @staticmethod
     def _range_from_ip(ip):
