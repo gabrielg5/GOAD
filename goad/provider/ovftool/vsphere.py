@@ -35,6 +35,7 @@ class VsphereProvider(Provider):
         self.vm_name_prefix = config.get_value('vsphere', 'vsphere_vm_name_prefix', '')
         self.ovftool_bin = config.get_value('vsphere', 'vsphere_ovftool_bin', 'ovftool')
         self.govc_bin = config.get_value('vsphere', 'vsphere_govc_bin', 'govc')
+        self.network_adapter = config.get_value('vsphere', 'vsphere_network_adapter', 'e1000')
         self.bootstrap_guest_network = config.get_value('vsphere', 'vsphere_bootstrap_guest_network', 'true').lower() == 'true'
         self.guest_username = config.get_value('vsphere', 'vsphere_guest_username', 'vagrant')
         self.guest_password = config.get_value('vsphere', 'vsphere_guest_password', 'vagrant')
@@ -282,15 +283,31 @@ class VsphereProvider(Provider):
             if not fields:
                 continue
             device = fields[0]
-            if device.startswith('ethernet-') and device not in devices:
+            if device.lower().startswith('ethernet-') and device not in devices:
                 devices.append(device)
         return devices
+
+    def _add_network_device(self, vm_name):
+        if not self.network:
+            Log.error(f'No ethernet devices found on {vm_name} and vsphere_network is empty')
+            return False
+
+        Log.info(f'Add network adapter to {vm_name} on {self.network}')
+        args = ['vm.network.add', '-vm', vm_name, '-net', self.network]
+        if self.network_adapter:
+            args += ['-net.adapter', self.network_adapter]
+        return self._run_govc(args)
 
     def _connect_network_devices(self, vm_name):
         devices = self._network_devices(vm_name)
         if not devices:
-            Log.error(f'No ethernet devices found on {vm_name}')
-            return False
+            Log.warning(f'No ethernet devices found on {vm_name}; creating one')
+            if not self._add_network_device(vm_name):
+                return False
+            devices = self._network_devices(vm_name)
+            if not devices:
+                Log.error(f'No ethernet devices found on {vm_name} after adding one')
+                return False
 
         result = True
         for device in devices:

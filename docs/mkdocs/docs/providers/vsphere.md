@@ -48,6 +48,7 @@ vsphere_vm_name_prefix =
 vsphere_overwrite = false
 vsphere_ovftool_bin = ovftool
 vsphere_govc_bin = govc
+vsphere_network_adapter = e1000
 ```
 
 VM names are prefixed with the GOAD instance id by default to avoid collisions. See the next section for commands to discover target, datastore, network, and folder values.
@@ -107,6 +108,7 @@ Notes:
 - `vsphere_server` is the vCenter or ESXi hostname only, without `https://`.
 - `vsphere_datastore` is the datastore name shown by `govc ls "/${GOVC_DATACENTER}/datastore"` or `govc datastore.info`.
 - `vsphere_network` is the destination vSphere network or port group name.
+- `vsphere_network_adapter` is used only if the imported VM has no network adapter and GOAD needs to add one after import.
 - `vsphere_ovftool_target` is the vCenter inventory path after the server, without a leading slash.
 - `vsphere_folder` is the VM folder path relative to `/<Datacenter>/vm`. For example, if `govc` shows `/Datacenter/vm/Labs/GOAD`, set `vsphere_folder = Labs/GOAD`.
 - `vsphere_resource_pool` is optional. If you deploy into a custom resource pool, include it in `vsphere_ovftool_target` as `Datacenter/host/Cluster/Resources/PoolName`.

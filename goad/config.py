@@ -107,6 +107,7 @@ class Config:
         config.set('vsphere', 'vsphere_overwrite', 'false')
         config.set('vsphere', 'vsphere_ovftool_bin', 'ovftool')
         config.set('vsphere', 'vsphere_govc_bin', 'govc')
+        config.set('vsphere', 'vsphere_network_adapter', 'e1000')
         config.write(cfgfile)
         cfgfile.close()
 
