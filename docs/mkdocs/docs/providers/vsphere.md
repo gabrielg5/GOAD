@@ -23,7 +23,7 @@ Ansible provisioning is unchanged. The host running GOAD still needs network acc
 
 ## Configuration
 
-Add or update the vSphere settings in `~/.goad/goad.ini`.
+Add or update the vSphere settings in `~/.goad/goad.ini`. The file is created the first time `./goad.sh` is started.
 
 ```ini
 [vsphere]
@@ -50,25 +50,94 @@ vsphere_ovftool_bin = ovftool
 vsphere_govc_bin = govc
 ```
 
-If `vsphere_ipv4_gateway` or `vsphere_dns_server` is empty, GOAD derives it from `-ip` as `<ip_range>.1`.
+VM names are prefixed with the GOAD instance id by default to avoid collisions. See the next section for commands to discover target, datastore, network, and folder values.
 
-For a direct ESXi target, leave `vsphere_ovftool_target` empty. For vCenter, this value is required; set the inventory path after the server. If it is empty, `ovftool` targets the vCenter root and can loop on the login prompt instead of deploying.
+## Discover vSphere values
 
-```ini
-vsphere_ovftool_target = Datacenter/host/Cluster/esxi.example.local
+The easiest way to collect the needed values is with `govc`. Use placeholder values below and avoid putting the password directly in shell history.
+
+```bash
+export GOVC_URL='vcenter.example.local'
+export GOVC_USERNAME='administrator@vsphere.local'
+read -rsp 'vSphere password: ' GOVC_PASSWORD; export GOVC_PASSWORD; echo
+export GOVC_INSECURE=1
+
+govc about
+govc ls /
 ```
 
-Common vCenter target forms are:
+Use the datacenter name returned by `govc ls /`:
+
+```bash
+export GOVC_DATACENTER='Datacenter'
+
+# clusters and hosts
+govc ls "/${GOVC_DATACENTER}/host"
+
+# datastores
+govc ls "/${GOVC_DATACENTER}/datastore"
+govc datastore.info
+
+# networks and port groups
+govc ls "/${GOVC_DATACENTER}/network"
+
+# VM folders
+govc ls "/${GOVC_DATACENTER}/vm"
+```
+
+Map the discovered values to `~/.goad/goad.ini` like this:
+
+```ini
+[vsphere]
+vsphere_server = vcenter.example.local
+vsphere_user = administrator@vsphere.local
+vsphere_password = password
+vsphere_allow_unverified_ssl = true
+vsphere_datastore = datastore1
+vsphere_network = GOAD-LAN
+vsphere_ovftool_target = Datacenter/host/Cluster
+vsphere_folder = Labs/GOAD
+vsphere_resource_pool =
+```
+
+Notes:
+
+- `vsphere_server` is the vCenter or ESXi hostname only, without `https://`.
+- `vsphere_datastore` is the datastore name shown by `govc ls "/${GOVC_DATACENTER}/datastore"` or `govc datastore.info`.
+- `vsphere_network` is the destination vSphere network or port group name.
+- `vsphere_ovftool_target` is the vCenter inventory path after the server, without a leading slash.
+- `vsphere_folder` is the VM folder path relative to `/<Datacenter>/vm`. For example, if `govc` shows `/Datacenter/vm/Labs/GOAD`, set `vsphere_folder = Labs/GOAD`.
+- `vsphere_resource_pool` is optional. If you deploy into a custom resource pool, include it in `vsphere_ovftool_target` as `Datacenter/host/Cluster/Resources/PoolName`.
+
+You can inspect resource pools with:
+
+```bash
+govc ls "/${GOVC_DATACENTER}/host/Cluster/Resources"
+```
+
+For a single ESXi host managed directly, `vsphere_ovftool_target` can stay empty. For vCenter, set it to a datacenter/host/cluster path:
 
 ```ini
 vsphere_ovftool_target = Datacenter/host/Cluster
 vsphere_ovftool_target = Datacenter/host/Cluster/esxi.example.local
-vsphere_ovftool_target = Datacenter/host/Cluster/Resources/ResourcePool
+vsphere_ovftool_target = Datacenter/host/Cluster/Resources/PoolName
 ```
 
-Use the exact datacenter, cluster, host, and resource pool names from your vCenter inventory.
+Configure guest network bootstrap according to the lab subnet:
 
-VM names are prefixed with the GOAD instance id by default to avoid collisions.
+```ini
+vsphere_ipv4_gateway = 192.168.56.1
+vsphere_ipv4_prefix_length = 24
+vsphere_dns_server = 192.168.56.1
+```
+
+For example, use `vsphere_ipv4_prefix_length = 27` for a `/27` lab network. If `vsphere_ipv4_gateway` or `vsphere_dns_server` is empty, GOAD derives it from `-ip` as `<ip_range>.1`.
+
+After editing the file, run:
+
+```bash
+./goad.sh -t check -l GOAD -p vsphere -ip 192.168.56
+```
 
 ## Installation
 
