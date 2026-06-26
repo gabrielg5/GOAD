@@ -94,7 +94,7 @@ def print_menu(lab_manager, advanced=True, debug=False):
         print_menu_entry('set_lab <lab>', 'set the lab to use')
         print_menu_entry('set_provider <provider>', 'set the provider to use')
         print_menu_entry('set_provisioning_method <method>', 'set the provisioning method')
-        print_menu_entry('set_ip_range <range>', 'set the 3 first digit of the ip to use (ex: 192.168.56)')
+        print_menu_entry('set_ip_range <range>', 'set the network CIDR or first 3 IP digits (ex: 192.168.56 or 192.168.56.224/27)')
 
     if lab_manager.get_current_instance() is not None:
         print_menu_entry('unload', 'unload current instance')

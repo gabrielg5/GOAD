@@ -1,6 +1,7 @@
 from goad.log import Log
 from goad.utils import *
 from goad.dependencies import Dependencies
+from goad.ip_range import IpRange, IpRangeError
 
 
 class Settings:
@@ -32,7 +33,7 @@ class Settings:
         Log.info(f'Current Provider    : {self.provider_name}')
         Log.info(f'Current Provisioner : {self.provisioner_name}')
         if self.provider_name != LUDUS:
-            Log.info(f'Current IP range    : {self.ip_range}.X')
+            Log.info(f'Current IP range    : {IpRange.display(self.ip_range)}')
         Log.info(f'Extension(s)        :')
         for extension in self.extensions_name:
             Log.info(f' - {extension}')
@@ -41,7 +42,7 @@ class Settings:
         if self.provider_name == LUDUS:
             return f'{self.lab_name}/{self.provider_name}/{self.provisioner_name}'
         else:
-            return f'{self.lab_name}/{self.provider_name}/{self.provisioner_name}/{self.ip_range}.X'
+            return f'{self.lab_name}/{self.provider_name}/{self.provisioner_name}/{IpRange.display(self.ip_range)}'
 
     def set_lab_name(self, lab_name, refresh=True):
         """
@@ -131,21 +132,12 @@ class Settings:
         return self.provisioner_name
 
     def set_ip_range(self, ip_range):
-        error = False
         try:
-            parts = ip_range.split('.')
-            if len(parts) >= 3 and all(0 <= int(parts[i]) < 256 for i in range(0, 3)):
-                self.ip_range = f'{parts[0]}.{parts[1]}.{parts[2]}'
-                return self.ip_range
-            else:
-                error = True
-        except ValueError:
-            error = True  # one of the 'parts' not convertible to integer
-        except (AttributeError, TypeError):
-            error = True  # `ip` isn't even a string
-        if error:
-            Log.error(f'entered value not valid')
-            Log.info(f'fallback to default ip range: 192.168.56.x')
+            self.ip_range = IpRange.normalize(ip_range)
+            return self.ip_range
+        except IpRangeError:
+            Log.error('entered value not valid')
+            Log.info('fallback to default ip range: 192.168.56.0/24')
             self.ip_range = '192.168.56'
         return self.ip_range
 

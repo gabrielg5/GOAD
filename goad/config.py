@@ -33,7 +33,7 @@ class Config:
         config.set('default', "; provisioner method : local / remote")
         config.set('default', 'provisioner', 'local')
 
-        config.set('default', '; ip_range (3 first ip digits)')
+        config.set('default', '; ip_range (CIDR or 3 first ip digits)')
         config.set('default', 'ip_range', '192.168.56')
 
         config.add_section('aws')
@@ -100,7 +100,7 @@ class Config:
         config.set('vsphere', 'vsphere_guest_username', 'vagrant')
         config.set('vsphere', 'vsphere_guest_password', 'vagrant')
         config.set('vsphere', 'vsphere_ipv4_gateway', '')
-        config.set('vsphere', 'vsphere_ipv4_prefix_length', '27')
+        config.set('vsphere', 'vsphere_ipv4_prefix_length', '')
         config.set('vsphere', 'vsphere_dns_server', '')
         config.set('vsphere', '; optional VM name prefix, leave empty to use the GOAD instance id')
         config.set('vsphere', 'vsphere_vm_name_prefix', '')

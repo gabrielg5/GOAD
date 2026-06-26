@@ -148,7 +148,7 @@ lab = GOAD
 provider = vmware
 ; provisioner method : local / remote
 provisioner = local
-; ip_range (3 first ip digits)
+; ip_range (CIDR or 3 first ip digits)
 ip_range = 192.168.56
 
 [aws]

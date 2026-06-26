@@ -54,7 +54,7 @@ GOAD/vmware_esxi/local/192.168.56.X > check
 ```bash
 ./goad.sh -p vmware_esxi
 GOAD/vmware_esxi/local/192.168.56.X > set_lab <lab>  # here choose the lab you want (GOAD/GOAD-Light/NHA/SCCM)
-GOAD/vmware_esxi/local/192.168.56.X > set_ip_range <ip_range>  # here choose the  ip range you want to use ex: 192.168.56 (only the first three digits)
+GOAD/vmware_esxi/local/192.168.56.0/24 > set_ip_range <ip_range>  # ex: 192.168.56 or 192.168.56.224/27
 GOAD/vmware_esxi/local/192.168.56.X > install
 ```
 

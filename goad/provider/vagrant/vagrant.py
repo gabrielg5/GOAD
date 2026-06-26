@@ -1,4 +1,5 @@
 from goad.provider.provider import Provider
+from goad.ip_range import IpRange
 
 
 class VagrantProvider(Provider):
@@ -52,4 +53,4 @@ class VagrantProvider(Provider):
         pass
 
     def get_jumpbox_ip(self, ip_range=''):
-        return ip_range + '.3'
+        return IpRange(ip_range).host(3)

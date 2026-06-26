@@ -4,6 +4,7 @@ from rich import print
 from goad.goadpath import *
 from goad.log import Log
 from goad.instance import LabInstance
+from goad.ip_range import IpRange, IpRangeError
 
 
 class LabInstances:
@@ -94,10 +95,15 @@ class LabInstances:
             if provider_name != '' and provider_name != instance.provider_name:
                 continue
             instance_found = True
+            try:
+                ip_range_display = IpRange.display(instance.ip_range)
+            except IpRangeError:
+                ip_range_display = instance.ip_range
+
             table.add_row(f'[red]> [/red][green]{instance_id}[/green]' if instance_id == current_instance_id else instance_id,
                           instance.lab_name,
                           self.color_provider(instance.provider_name),
-                          instance.ip_range + '.0/24',
+                          ip_range_display,
                           self.color_status(instance.status),
                           'Yes' if instance.is_default else 'No',
                           ", ".join(instance.extensions)

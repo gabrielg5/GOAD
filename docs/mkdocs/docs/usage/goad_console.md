@@ -28,7 +28,7 @@ labs .................................... show all labs and available providers
 set_lab <lab> ........................... set the lab to use
 set_provider <provider> ................. set the provider to use
 set_provisioning_method <method> ........ set the provisioning method
-set_ip_range <range> .................... set the 3 first digit of the ip to use (ex: 192.168.56)
+set_ip_range <range> .................... set the network CIDR or first 3 IP digits (ex: 192.168.56 or 192.168.56.224/27)
 ```
 
 ### check
@@ -145,7 +145,7 @@ set_provisioning <provisioning_method>
 
 ### set_ip_range
 
-Set the ip range you want to use (Three first digit, example : 192.168.10)
+Set the IP range you want to use. Use either a CIDR, such as `192.168.10.224/27`, or the first three octets, such as `192.168.10` for the legacy `/24` behavior.
 
 ```
 set_ip_range <ip_range>

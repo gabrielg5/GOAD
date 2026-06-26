@@ -11,6 +11,7 @@ from urllib.parse import quote
 from goad.provider.provider import Provider
 from goad.log import Log
 from goad.utils import *
+from goad.ip_range import IpRange, IpRangeError
 
 
 class VsphereProvider(Provider):
@@ -39,7 +40,7 @@ class VsphereProvider(Provider):
         self.bootstrap_guest_network = config.get_value('vsphere', 'vsphere_bootstrap_guest_network', 'true').lower() == 'true'
         self.guest_username = config.get_value('vsphere', 'vsphere_guest_username', 'vagrant')
         self.guest_password = config.get_value('vsphere', 'vsphere_guest_password', 'vagrant')
-        self.ipv4_prefix_length = config.get_value('vsphere', 'vsphere_ipv4_prefix_length', '27')
+        self.ipv4_prefix_length = config.get_value('vsphere', 'vsphere_ipv4_prefix_length', '')
         self.ipv4_gateway = config.get_value('vsphere', 'vsphere_ipv4_gateway', '')
         self.dns_server = config.get_value('vsphere', 'vsphere_dns_server', '')
 
@@ -181,9 +182,33 @@ class VsphereProvider(Provider):
             return '.'.join(parts[:3])
         return ''
 
+    def _instance_ip_plan(self):
+        instance_file = Path(self.path).parent / 'instance.json'
+        if not instance_file.is_file():
+            return None
+        try:
+            with open(instance_file, 'r') as instance_info_openfile:
+                instance_info = json.load(instance_info_openfile)
+            return IpRange(instance_info['ip_range'])
+        except (KeyError, OSError, json.JSONDecodeError, IpRangeError):
+            return None
+
+    def _prefix_length(self):
+        ip_plan = self._instance_ip_plan()
+        if ip_plan is not None and '/' in str(ip_plan.raw_value):
+            return ip_plan.prefixlen
+        if str(self.ipv4_prefix_length).strip():
+            return int(self.ipv4_prefix_length)
+        if ip_plan is not None:
+            return ip_plan.prefixlen
+        return 24
+
     def _gateway_for_box(self, box):
         if self.ipv4_gateway:
             return self.ipv4_gateway
+        ip_plan = self._instance_ip_plan()
+        if ip_plan is not None:
+            return ip_plan.gateway
         ip_range = self._range_from_ip(box['ip'])
         if ip_range:
             return ip_range + '.1'
@@ -226,7 +251,8 @@ class VsphereProvider(Provider):
 
         gateway = self._gateway_for_box(box)
         dns_server = self._dns_for_box(box)
-        netmask = self._netmask_from_prefix(self.ipv4_prefix_length)
+        prefix_length = self._prefix_length()
+        netmask = self._netmask_from_prefix(prefix_length)
         command = (
             'for /f "skip=3 tokens=1,2,3,*" %a in ('
             "'netsh interface show interface'"
@@ -246,11 +272,12 @@ class VsphereProvider(Provider):
     def _bootstrap_linux_guest(self, vm_name, box):
         gateway = self._gateway_for_box(box)
         dns_server = self._dns_for_box(box)
+        prefix_length = self._prefix_length()
         script = (
             "set -e; "
             "iface=$(ip -o link show | awk -F': ' '$2 != \"lo\" {print $2; exit}'); "
             f"sudo ip addr flush dev \"$iface\"; "
-            f"sudo ip addr add {box['ip']}/{self.ipv4_prefix_length} dev \"$iface\"; "
+            f"sudo ip addr add {box['ip']}/{prefix_length} dev \"$iface\"; "
             "sudo ip link set \"$iface\" up; "
             f"sudo ip route replace default via {gateway}; "
             f"echo nameserver {dns_server} | sudo tee /etc/resolv.conf >/dev/null"
@@ -267,7 +294,7 @@ class VsphereProvider(Provider):
         if not self.bootstrap_guest_network:
             return True
         os_name = box.get('os', '').lower()
-        Log.info(f'Bootstrap guest network for {vm_name} ({box["ip"]}/{self.ipv4_prefix_length})')
+        Log.info(f'Bootstrap guest network for {vm_name} ({box["ip"]}/{self._prefix_length()})')
         if os_name == 'windows':
             return self._bootstrap_windows_guest(vm_name, box)
         return self._bootstrap_linux_guest(vm_name, box)
@@ -470,4 +497,4 @@ class VsphereProvider(Provider):
         return self._run_govc(['vm.destroy', vm_name])
 
     def get_jumpbox_ip(self, ip_range=''):
-        return ip_range + '.3'
+        return IpRange(ip_range).host(3)

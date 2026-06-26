@@ -8,7 +8,7 @@ keyboard_layouts=["en-US", "da-DK", "fr-FR"]
 
 ; modify this to add a default route
 add_route=no
-route_gateway=192.168.56.1
+route_gateway={{ip_range}}.1
 route_network=10.0.0.0/8
 
 ; modify this to enable http proxy

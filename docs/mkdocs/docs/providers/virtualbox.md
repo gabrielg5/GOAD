@@ -46,7 +46,7 @@ GOAD/virtualbox/local/192.168.56.X > check
 ```bash
 ./goad.sh -p virtualbox
 GOAD/virtualbox/local/192.168.56.X > set_lab <lab>  # here choose the lab you want (GOAD/GOAD-Light/NHA/SCCM)
-GOAD/virtualbox/local/192.168.56.X > set_ip_range <ip_range>  # here choose the  ip range you want to use ex: 192.168.56
+GOAD/virtualbox/local/192.168.56.0/24 > set_ip_range <ip_range>  # ex: 192.168.56 or 192.168.56.224/27
 GOAD/virtualbox/local/192.168.56.X > install
 ```
 

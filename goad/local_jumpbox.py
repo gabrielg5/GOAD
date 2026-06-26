@@ -46,7 +46,10 @@ class LocalJumpBox(JumpBox):
         """
         if Utils.is_valid_ipv4(self.ip):
             # Copy the globalsettings.ini file to the jumpbox
-            self.command.scp(GoadPath.get_global_inventory_path(), f'{self.username}@{self.ip}:~/GOAD/globalsettings.ini', self.ssh_key, self.instance_path)
+            global_inventory = self.instance_path + os.path.sep + 'globalsettings.ini'
+            if not os.path.isfile(global_inventory):
+                global_inventory = GoadPath.get_global_inventory_path()
+            self.command.scp(global_inventory, f'{self.username}@{self.ip}:~/GOAD/globalsettings.ini', self.ssh_key, self.instance_path)
             # create workspace dir if not exist
             self.run_command('mkdir -p ~/GOAD/workspace/' + self.instance_id, '~')
             # workspace inventory files (no need -r as it will copy all the provider folder)

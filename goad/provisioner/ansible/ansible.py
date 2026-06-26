@@ -24,6 +24,11 @@ class Ansible(Provisioner):
 
     def _get_global_inventory(self):
         # Global inventory
+        instance_global_inventory = self.instance_path + os.path.sep + 'globalsettings.ini'
+        if os.path.isfile(instance_global_inventory):
+            Log.success(f'Global inventory : {instance_global_inventory} file found')
+            return instance_global_inventory
+
         global_inventory = GoadPath.get_global_inventory_path()
         if os.path.isfile(global_inventory):
             Log.success(f'Global inventory : {global_inventory} file found')

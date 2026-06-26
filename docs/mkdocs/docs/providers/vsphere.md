@@ -42,7 +42,7 @@ vsphere_bootstrap_guest_network = true
 vsphere_guest_username = vagrant
 vsphere_guest_password = vagrant
 vsphere_ipv4_gateway =
-vsphere_ipv4_prefix_length = 27
+vsphere_ipv4_prefix_length =
 vsphere_dns_server =
 vsphere_vm_name_prefix =
 vsphere_overwrite = false
@@ -131,28 +131,28 @@ Configure guest network bootstrap according to the lab subnet:
 
 ```ini
 vsphere_ipv4_gateway = 192.168.56.1
-vsphere_ipv4_prefix_length = 24
+vsphere_ipv4_prefix_length =
 vsphere_dns_server = 192.168.56.1
 ```
 
-For example, use `vsphere_ipv4_prefix_length = 27` for a `/27` lab network. If `vsphere_ipv4_gateway` or `vsphere_dns_server` is empty, GOAD derives it from `-ip` as `<ip_range>.1`.
+If `vsphere_ipv4_gateway`, `vsphere_ipv4_prefix_length`, or `vsphere_dns_server` is empty, GOAD derives the guest network settings from the selected `-ip` CIDR. For example, `-ip 192.168.56.224/27` uses gateway/DNS `192.168.56.225` and prefix length `27`.
 
 After editing the file, run:
 
 ```bash
-./goad.sh -t check -l GOAD -p vsphere -ip 192.168.56
+./goad.sh -t check -l GOAD -p vsphere -ip 192.168.56.224/27
 ```
 
 ## Installation
 
 ```bash
 # check prerequisites
-./goad.sh -t check -l GOAD -p vsphere -ip 192.168.56
+./goad.sh -t check -l GOAD -p vsphere -ip 192.168.56.224/27
 
 # install
-./goad.sh -t install -l GOAD -p vsphere -ip 192.168.56
+./goad.sh -t install -l GOAD -p vsphere -ip 192.168.56.224/27
 ```
 
-The `-ip` value is still the first three octets used by GOAD inventories. The subnet mask used during vSphere guest customization is controlled by `vsphere_ipv4_prefix_length`.
+The `-ip` value can be a full CIDR. Existing first-three-octet values still work and are treated as `/24`.
 
 The first-boot network bootstrap uses VMware Tools guest operations. If that is disabled, the imported boxes must already be reachable at the inventory IPs before Ansible starts.

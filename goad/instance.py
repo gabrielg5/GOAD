@@ -8,6 +8,7 @@ from goad.log import Log
 from goad.exceptions import ProviderPathNotFound, JumpBoxInitFailed
 from goad.provisioner.provisioner_factory import ProvisionerFactory
 from goad.utils import *
+from goad.ip_range import IpRange
 
 
 class LabInstance:
@@ -37,6 +38,10 @@ class LabInstance:
         self.lab = None
         self.provider = None
         self.provisioner = None
+        self.ip_plan = IpRange(self.ip_range)
+
+    def _render_template(self, template, **context):
+        return self.ip_plan.render_template(template, **context)
 
     def load(self, labs, creation=False):
         instance_path = GoadPath.get_instance_path(self.instance_id)
@@ -122,9 +127,9 @@ class LabInstance:
         # load lab vagrantfile
         lab_environment = Environment(loader=FileSystemLoader(GoadPath.get_lab_provider_path(self.lab_name, self.provider_name)))
         lab_vagrantfile_template = lab_environment.get_template("Vagrantfile")
-        lab_vagrantfile_content = lab_vagrantfile_template.render(
-            lab_name=self.lab_name,
-            ip_range=self.ip_range
+        lab_vagrantfile_content = self._render_template(
+            lab_vagrantfile_template,
+            lab_name=self.lab_name
         )
 
         # load lab extensions
@@ -134,21 +139,21 @@ class LabInstance:
             if os.path.isfile(f'{extension_provider_folder}{sep}Vagrantfile'):
                 extension_environment = Environment(loader=FileSystemLoader(extension_provider_folder))
                 lab_extension_vagrantfile_template = extension_environment.get_template("Vagrantfile")
-                lab_extensions_content += lab_extension_vagrantfile_template.render(
-                    lab_name=self.lab_name,
-                    ip_range=self.ip_range
+                lab_extensions_content += self._render_template(
+                    lab_extension_vagrantfile_template,
+                    lab_name=self.lab_name
                 ) + "\n"
 
         # load extensions Vagrantfile into instance
         use_provisioning_vm = True if self.provisioner_name == PROVISIONING_VM else False
         environment = Environment(loader=FileSystemLoader(GoadPath.get_template_path(self.provider_name)))
         vagrantfile_template = environment.get_template("Vagrantfile")
-        vagrantfile_content = vagrantfile_template.render(
+        vagrantfile_content = self._render_template(
+            vagrantfile_template,
             lab_name=self.lab_name,
             lab=lab_vagrantfile_content,
             extensions=lab_extensions_content,
             provider_name=self.provider_name,
-            ip_range=self.ip_range,
             use_provisioning_vm=use_provisioning_vm
         )
 
@@ -210,9 +215,9 @@ class LabInstance:
         environment = Environment(loader=FileSystemLoader(lab_provider_path))
         lab_vagrantfile_template = environment.get_template("Vagrantfile")
         rendered_vagrantfiles = [
-            lab_vagrantfile_template.render(
-                lab_name=self.lab_name,
-                ip_range=self.ip_range
+            self._render_template(
+                lab_vagrantfile_template,
+                lab_name=self.lab_name
             )
         ]
 
@@ -222,9 +227,9 @@ class LabInstance:
                 extension_environment = Environment(loader=FileSystemLoader(extension_provider_folder))
                 extension_vagrantfile_template = extension_environment.get_template("Vagrantfile")
                 rendered_vagrantfiles.append(
-                    extension_vagrantfile_template.render(
-                        lab_name=self.lab_name,
-                        ip_range=self.ip_range
+                    self._render_template(
+                        extension_vagrantfile_template,
+                        lab_name=self.lab_name
                     )
                 )
 
@@ -248,10 +253,10 @@ class LabInstance:
         # load lab vagrantfile
         lab_environment = Environment(loader=FileSystemLoader(GoadPath.get_lab_provider_path(self.lab_name, self.provider_name)))
         lab_ludus_config_file_template = lab_environment.get_template("config.yml")
-        lab_ludus_config_file_content = lab_ludus_config_file_template.render(
+        lab_ludus_config_file_content = self._render_template(
+            lab_ludus_config_file_template,
             lab_name=self.lab_name,
-            range_id="{{ range_id }}",
-            ip_range=self.ip_range
+            range_id="{{ range_id }}"
         )
 
         # load lab extensions
@@ -260,16 +265,17 @@ class LabInstance:
             extension_provider_folder = GoadPath.get_extension_providers_provider_path(extension, self.provider_name)
             extension_environment = Environment(loader=FileSystemLoader(extension_provider_folder))
             lab_extension_ludus_config_file_template = extension_environment.get_template("config.yml")
-            lab_extensions_ludus_config_file_content += lab_extension_ludus_config_file_template.render(
+            lab_extensions_ludus_config_file_content += self._render_template(
+                lab_extension_ludus_config_file_template,
                 lab_name=self.lab_name,
-                range_id="{{ range_id }}",
-                ip_range=self.ip_range
+                range_id="{{ range_id }}"
             ) + "\n"
 
         # load lab + extension into instance config
         environment = Environment(loader=FileSystemLoader(GoadPath.get_template_path(self.provider_name)))
         ludus_config_file_template = environment.get_template("config.yml")
-        ludus_config_file_template_content = ludus_config_file_template.render(
+        ludus_config_file_template_content = self._render_template(
+            ludus_config_file_template,
             lab_name=self.lab_name,
             lab=lab_ludus_config_file_content,
             extensions=lab_extensions_ludus_config_file_content,
@@ -283,19 +289,23 @@ class LabInstance:
             Log.info(f'Instance vagrantfile created : {Utils.get_relative_path(instance_ludus_file)}')
 
     def _create_terraform_folder(self):
+        if self.provider_name == AWS:
+            self.ip_plan.register_legacy_subnet(0, 26, reserved_offsets={0, 1, 2, 3})
+            self.ip_plan.register_legacy_subnet(64, 26, reserved_offsets={0, 1, 2, 3})
+
         # load lab files
         lab_environment = Environment(loader=FileSystemLoader(GoadPath.get_lab_provider_path(self.lab_name, self.provider_name)))
         lab_windows_template = lab_environment.get_template("windows.tf")
-        windows_vm = lab_windows_template.render(
-            ip_range=self.ip_range
+        windows_vm = self._render_template(
+            lab_windows_template
         )
 
         linux_vm = ''
         if os.path.isfile(GoadPath.get_lab_provider_path(self.lab_name, self.provider_name) + sep + 'linux.tf'):
             lab_environment = Environment(loader=FileSystemLoader(GoadPath.get_lab_provider_path(self.lab_name, self.provider_name)))
             lab_windows_template = lab_environment.get_template("linux.tf")
-            linux_vm = lab_windows_template.render(
-                ip_range=self.ip_range
+            linux_vm = self._render_template(
+                lab_windows_template
             )
 
         # load lab extensions content
@@ -304,15 +314,15 @@ class LabInstance:
             extension_environment = Environment(loader=FileSystemLoader(extension_provider_folder))
             if os.path.isfile(extension_provider_folder + sep + 'linux.tf'):
                 lab_extension_linux_template = extension_environment.get_template("linux.tf")
-                linux_vm += "\n" + lab_extension_linux_template.render(
-                    lab_name=self.lab_name,
-                    ip_range=self.ip_range
+                linux_vm += "\n" + self._render_template(
+                    lab_extension_linux_template,
+                    lab_name=self.lab_name
                 ) + "\n"
             if os.path.isfile(extension_provider_folder + sep + 'windows.tf'):
                 lab_extension_windows_template = extension_environment.get_template("windows.tf")
-                windows_vm += "\n" + lab_extension_windows_template.render(
-                    lab_name=self.lab_name,
-                    ip_range=self.ip_range
+                windows_vm += "\n" + self._render_template(
+                    lab_extension_windows_template,
+                    lab_name=self.lab_name
                 ) + "\n"
 
         # load template folder
@@ -320,12 +330,12 @@ class LabInstance:
 
         for template in Utils.list_files(GoadPath.get_template_path(self.provider_name)):
             tf_template = environment.get_template(template)
-            tf_content = tf_template.render(
+            tf_content = self._render_template(
+                tf_template,
                 windows_vms=windows_vm,
                 linux_vms=linux_vm,
                 lab_identifier=self.lab_name + '-' + self.instance_id,
                 lab_name=self.lab_name,
-                ip_range=self.ip_range,
                 provider_name=self.provider_name,
                 config=self.config
             )
@@ -356,6 +366,16 @@ class LabInstance:
         if self.is_terraform():
             self._create_terraform_folder()
 
+    def _create_global_inventory(self):
+        environment = Environment(loader=FileSystemLoader(project_path))
+        global_inventory_template = environment.get_template('globalsettings.ini')
+        global_inventory_content = self._render_template(global_inventory_template)
+
+        instance_global_inventory_file = self.instance_path + sep + 'globalsettings.ini'
+        with open(instance_global_inventory_file, mode="w", encoding="utf-8") as inventory_file:
+            inventory_file.write(global_inventory_content)
+            Log.success(f'Global inventory file created : {Utils.get_relative_path(instance_global_inventory_file)}')
+
     def _create_provisioning_lab_inventory(self, inventory_file):
         Log.info(f'Create lab provisioning file {inventory_file}')
         # create lab inventory
@@ -363,9 +383,9 @@ class LabInstance:
         environment = Environment(loader=FileSystemLoader(lab_provider_path))
         # create inventory template
         inventory_template = environment.get_template(inventory_file)
-        instance_inventory_content = inventory_template.render(
+        instance_inventory_content = self._render_template(
+            inventory_template,
             lab_name=self.lab_name,
-            ip_range=self.ip_range,
             provider_name=self.provider_name
         )
         # create instance inventory file
@@ -381,9 +401,9 @@ class LabInstance:
         environment = Environment(loader=FileSystemLoader(lab_provider_path))
         # create inventory template
         inventory_template = environment.get_template("inventory")
-        instance_inventory_content = inventory_template.render(
+        instance_inventory_content = self._render_template(
+            inventory_template,
             lab_name=self.lab_name,
-            ip_range=self.ip_range,
             provider_name=self.provider_name
         )
         # create instance inventory file
@@ -399,9 +419,9 @@ class LabInstance:
             extension_folder = GoadPath.get_extension_path(extension)
             extension_environment = Environment(loader=FileSystemLoader(extension_folder))
             instance_extension_inventory_template = extension_environment.get_template("inventory")
-            instance_extension_inventory_content = instance_extension_inventory_template.render(
+            instance_extension_inventory_content = self._render_template(
+                instance_extension_inventory_template,
                 lab_name=self.lab_name,
-                ip_range=self.ip_range,
                 provider_name=self.provider_name
             )
 
@@ -415,6 +435,7 @@ class LabInstance:
         self.create_instance_folder(True)
 
     def create_instance_folder(self, force=False):
+        self.ip_plan = IpRange(self.ip_range)
         instance_exist = False
         if os.path.isdir(self.instance_path):
             instance_exist = True
@@ -439,6 +460,7 @@ class LabInstance:
             self.delete_instance()
             return False
 
+        self._create_global_inventory()
         self._create_provisioning_lab_inventory('inventory_disable_vagrant')
         self._create_provisioning_provider_inventory()
         self._create_extensions_inventory()
