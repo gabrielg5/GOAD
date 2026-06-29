@@ -490,6 +490,8 @@ if __name__ == '__main__':
     else:
         if args.instance is not None:
             goad.do_load(args.instance)
+            if goad.lab_manager.get_current_instance() is None:
+                sys.exit(1)
 
         if args.run_playbook is not None or args.ansible_only is not None:
             if args.instance is None:
