@@ -4,6 +4,7 @@ import os
 import shlex
 import ipaddress
 import subprocess
+import tempfile
 import time
 from pathlib import Path
 from urllib.parse import quote
@@ -226,6 +227,71 @@ class VsphereProvider(Provider):
     def _netmask_from_prefix(prefix_length):
         return str(ipaddress.IPv4Network(f'0.0.0.0/{prefix_length}').netmask)
 
+    @staticmethod
+    def _windows_network_script(ip_address, prefix_length, gateway, dns_server):
+        return r'''
+$ErrorActionPreference = "Stop"
+$ipAddress = "__IP_ADDRESS__"
+$prefixLength = __PREFIX_LENGTH__
+$gateway = "__GATEWAY__"
+$dnsServer = "__DNS_SERVER__"
+
+$adapter = $null
+for ($attempt = 0; $attempt -lt 60; $attempt++) {
+    $adapter = Get-NetAdapter |
+        Where-Object { $_.Status -eq "Up" -and $_.Name -notlike "*Loopback*" } |
+        Sort-Object -Property ifIndex |
+        Select-Object -First 1
+    if ($adapter) {
+        break
+    }
+    Start-Sleep -Seconds 5
+}
+
+if (-not $adapter) {
+    throw "No connected network adapter found"
+}
+
+Get-NetIPAddress -InterfaceIndex $adapter.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+    Remove-NetIPAddress -Confirm:$false -ErrorAction SilentlyContinue
+Get-NetRoute -InterfaceIndex $adapter.ifIndex -AddressFamily IPv4 -DestinationPrefix "0.0.0.0/0" -ErrorAction SilentlyContinue |
+    Remove-NetRoute -Confirm:$false -ErrorAction SilentlyContinue
+
+New-NetIPAddress -InterfaceIndex $adapter.ifIndex -IPAddress $ipAddress -PrefixLength $prefixLength -DefaultGateway $gateway | Out-Null
+Set-DnsClientServerAddress -InterfaceIndex $adapter.ifIndex -ServerAddresses $dnsServer
+'''.replace('__IP_ADDRESS__', ip_address) \
+            .replace('__PREFIX_LENGTH__', str(prefix_length)) \
+            .replace('__GATEWAY__', gateway) \
+            .replace('__DNS_SERVER__', dns_server)
+
+    def _upload_and_run_windows_script(self, vm_name, script_content, remote_script):
+        local_script = None
+        try:
+            with tempfile.NamedTemporaryFile('w', suffix='.ps1', delete=False, encoding='utf-8') as script_file:
+                script_file.write(script_content)
+                local_script = script_file.name
+
+            if not self._run_govc_retry([
+                'guest.upload',
+                '-vm', vm_name,
+                '-l', self._guest_login(),
+                local_script,
+                remote_script
+            ], tries=12, delay=10):
+                return False
+
+            return self._run_govc_retry([
+                'guest.start',
+                '-vm', vm_name,
+                '-l', self._guest_login(),
+                'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
+                '-ExecutionPolicy', 'Bypass',
+                '-File', remote_script
+            ], tries=6, delay=10)
+        finally:
+            if local_script and os.path.isfile(local_script):
+                os.unlink(local_script)
+
     def _bootstrap_windows_guest(self, vm_name, box):
         configure_script = Path(project_path) / 'vagrant' / 'ConfigureRemotingForAnsible.ps1'
         remote_configure_script = 'C:\\Windows\\Temp\\ConfigureRemotingForAnsible.ps1'
@@ -252,22 +318,17 @@ class VsphereProvider(Provider):
         gateway = self._gateway_for_box(box)
         dns_server = self._dns_for_box(box)
         prefix_length = self._prefix_length()
-        netmask = self._netmask_from_prefix(prefix_length)
-        command = (
-            'for /f "skip=3 tokens=1,2,3,*" %a in ('
-            "'netsh interface show interface'"
-            f') do if /I "%b"=="Connected" ('
-            f'netsh interface ipv4 set address name="%d" static {box["ip"]} {netmask} {gateway} 1 & '
-            f'netsh interface ipv4 set dnsservers name="%d" static {dns_server} primary'
-            ')'
+        network_script = self._windows_network_script(
+            box['ip'],
+            prefix_length,
+            gateway,
+            dns_server
         )
-        return self._run_govc_retry([
-            'guest.start',
-            '-vm', vm_name,
-            '-l', self._guest_login(),
-            'C:\\Windows\\System32\\cmd.exe',
-            '/c', command
-        ], tries=6, delay=10)
+        return self._upload_and_run_windows_script(
+            vm_name,
+            network_script,
+            'C:\\Windows\\Temp\\GOAD-BootstrapNetwork.ps1'
+        )
 
     def _bootstrap_linux_guest(self, vm_name, box):
         gateway = self._gateway_for_box(box)
