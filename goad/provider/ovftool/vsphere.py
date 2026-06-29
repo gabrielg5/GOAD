@@ -3,6 +3,7 @@ import getpass
 import os
 import shlex
 import ipaddress
+import re
 import subprocess
 import tempfile
 import time
@@ -233,6 +234,7 @@ class VsphereProvider(Provider):
 $ErrorActionPreference = "Stop"
 $ipAddress = "__IP_ADDRESS__"
 $prefixLength = __PREFIX_LENGTH__
+$netmask = "__NETMASK__"
 $gateway = "__GATEWAY__"
 $dnsServer = "__DNS_SERVER__"
 
@@ -257,14 +259,54 @@ Get-NetIPAddress -InterfaceIndex $adapter.ifIndex -AddressFamily IPv4 -ErrorActi
 Get-NetRoute -InterfaceIndex $adapter.ifIndex -AddressFamily IPv4 -DestinationPrefix "0.0.0.0/0" -ErrorAction SilentlyContinue |
     Remove-NetRoute -Confirm:$false -ErrorAction SilentlyContinue
 
-New-NetIPAddress -InterfaceIndex $adapter.ifIndex -IPAddress $ipAddress -PrefixLength $prefixLength -DefaultGateway $gateway | Out-Null
-Set-DnsClientServerAddress -InterfaceIndex $adapter.ifIndex -ServerAddresses $dnsServer
+try {
+    Set-NetIPInterface -InterfaceIndex $adapter.ifIndex -AddressFamily IPv4 -Dhcp Disabled -ErrorAction SilentlyContinue
+    New-NetIPAddress -InterfaceIndex $adapter.ifIndex -IPAddress $ipAddress -PrefixLength $prefixLength -DefaultGateway $gateway | Out-Null
+    Set-DnsClientServerAddress -InterfaceIndex $adapter.ifIndex -ServerAddresses $dnsServer
+} catch {
+    Write-Output "PowerShell network configuration failed: $($_.Exception.Message)"
+    & netsh.exe interface ipv4 set address name="$($adapter.Name)" static $ipAddress $netmask $gateway 1
+    if ($LASTEXITCODE -ne 0) {
+        throw "netsh address configuration failed with exit code $LASTEXITCODE"
+    }
+    & netsh.exe interface ipv4 set dnsservers name="$($adapter.Name)" static $dnsServer primary
+    if ($LASTEXITCODE -ne 0) {
+        throw "netsh DNS configuration failed with exit code $LASTEXITCODE"
+    }
+}
+
+$assigned = $false
+for ($attempt = 0; $attempt -lt 30; $attempt++) {
+    $assignedAddress = Get-NetIPAddress -InterfaceIndex $adapter.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+        Where-Object { $_.IPAddress -eq $ipAddress } |
+        Select-Object -First 1
+    if ($assignedAddress) {
+        $assigned = $true
+        break
+    }
+    Start-Sleep -Seconds 2
+}
+
+if (-not $assigned) {
+    throw "Static IPv4 address $ipAddress was not assigned"
+}
 '''.replace('__IP_ADDRESS__', ip_address) \
             .replace('__PREFIX_LENGTH__', str(prefix_length)) \
+            .replace('__NETMASK__', VsphereProvider._netmask_from_prefix(prefix_length)) \
             .replace('__GATEWAY__', gateway) \
             .replace('__DNS_SERVER__', dns_server)
 
-    def _upload_and_run_windows_script(self, vm_name, script_content, remote_script):
+    def _run_guest_program(self, vm_name, program, args=None, tries=6, delay=10):
+        if args is None:
+            args = []
+        return self._run_govc_retry([
+            'guest.run',
+            '-vm', vm_name,
+            '-l', self._guest_login(),
+            program,
+        ] + args, tries=tries, delay=delay)
+
+    def _upload_and_run_windows_script(self, vm_name, script_content, remote_script, tries=6):
         local_script = None
         try:
             with tempfile.NamedTemporaryFile('w', suffix='.ps1', delete=False, encoding='utf-8') as script_file:
@@ -280,17 +322,52 @@ Set-DnsClientServerAddress -InterfaceIndex $adapter.ifIndex -ServerAddresses $dn
             ], tries=12, delay=10):
                 return False
 
-            return self._run_govc_retry([
-                'guest.start',
-                '-vm', vm_name,
-                '-l', self._guest_login(),
+            return self._run_guest_program(
+                vm_name,
                 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
-                '-ExecutionPolicy', 'Bypass',
-                '-File', remote_script
-            ], tries=6, delay=10)
+                [
+                    '-NoProfile',
+                    '-ExecutionPolicy', 'Bypass',
+                    '-File', remote_script
+                ],
+                tries=tries,
+                delay=10
+            )
         finally:
             if local_script and os.path.isfile(local_script):
                 os.unlink(local_script)
+
+    @staticmethod
+    def _ipv4_addresses(output):
+        if not output:
+            return []
+        seen = set()
+        addresses = []
+        for address in re.findall(r'\b(?:\d{1,3}\.){3}\d{1,3}\b', output):
+            if address not in seen:
+                seen.add(address)
+                addresses.append(address)
+        return addresses
+
+    def _wait_for_guest_ip(self, vm_name, expected_ip, tries=30, delay=10):
+        Log.info(f'Wait for {vm_name} to report {expected_ip}')
+        last_addresses = []
+        for attempt in range(1, tries + 1):
+            output = self._capture_govc(['vm.ip', '-v4', '-wait', '20s', vm_name])
+            addresses = self._ipv4_addresses(output)
+            if addresses:
+                last_addresses = addresses
+            if expected_ip in addresses:
+                Log.success(f'{vm_name} reported {expected_ip}')
+                return True
+            if attempt < tries:
+                reported = ', '.join(last_addresses) if last_addresses else 'no IPv4 address'
+                Log.info(f'{vm_name} reports {reported}; retry in {delay}s ({attempt}/{tries})')
+                time.sleep(delay)
+
+        reported = ', '.join(last_addresses) if last_addresses else 'no IPv4 address'
+        Log.error(f'{vm_name} did not report expected IP {expected_ip}; last reported: {reported}')
+        return False
 
     def _bootstrap_windows_guest(self, vm_name, box):
         configure_script = Path(project_path) / 'vagrant' / 'ConfigureRemotingForAnsible.ps1'
@@ -304,15 +381,18 @@ Set-DnsClientServerAddress -InterfaceIndex $adapter.ifIndex -ServerAddresses $dn
         ], tries=12, delay=10):
             return False
 
-        if not self._run_govc_retry([
-            'guest.start',
-            '-vm', vm_name,
-            '-l', self._guest_login(),
+        if not self._run_guest_program(
+            vm_name,
             'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
-            '-ExecutionPolicy', 'Bypass',
-            '-File', remote_configure_script,
-            '-SkipNetworkProfileCheck'
-        ], tries=3, delay=10):
+            [
+                '-NoProfile',
+                '-ExecutionPolicy', 'Bypass',
+                '-File', remote_configure_script,
+                '-SkipNetworkProfileCheck'
+            ],
+            tries=3,
+            delay=10
+        ):
             return False
 
         gateway = self._gateway_for_box(box)
@@ -324,11 +404,15 @@ Set-DnsClientServerAddress -InterfaceIndex $adapter.ifIndex -ServerAddresses $dn
             gateway,
             dns_server
         )
-        return self._upload_and_run_windows_script(
+        if not self._upload_and_run_windows_script(
             vm_name,
             network_script,
-            'C:\\Windows\\Temp\\GOAD-BootstrapNetwork.ps1'
-        )
+            'C:\\Windows\\Temp\\GOAD-BootstrapNetwork.ps1',
+            tries=3
+        ):
+            return False
+
+        return self._wait_for_guest_ip(vm_name, box['ip'])
 
     def _bootstrap_linux_guest(self, vm_name, box):
         gateway = self._gateway_for_box(box)
@@ -343,13 +427,16 @@ Set-DnsClientServerAddress -InterfaceIndex $adapter.ifIndex -ServerAddresses $dn
             f"sudo ip route replace default via {gateway}; "
             f"echo nameserver {dns_server} | sudo tee /etc/resolv.conf >/dev/null"
         )
-        return self._run_govc_retry([
-            'guest.start',
-            '-vm', vm_name,
-            '-l', self._guest_login(),
+        if not self._run_guest_program(
+            vm_name,
             '/bin/bash',
-            '-lc', script
-        ], tries=30, delay=10)
+            ['-lc', script],
+            tries=30,
+            delay=10
+        ):
+            return False
+
+        return self._wait_for_guest_ip(vm_name, box['ip'])
 
     def _bootstrap_guest(self, vm_name, box):
         if not self.bootstrap_guest_network:
