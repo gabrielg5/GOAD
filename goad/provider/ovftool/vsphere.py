@@ -372,6 +372,36 @@ if (-not $assigned) {
         Log.error(f'{vm_name} did not report expected IP {expected_ip}; last reported: {reported}')
         return False
 
+    def _start_windows_netsh_fallback(self, vm_name, box):
+        gateway = self._gateway_for_box(box)
+        dns_server = self._dns_for_box(box)
+        netmask = self._netmask_from_prefix(self._prefix_length())
+        interface_names = [
+            'Ethernet1',
+            'Ethernet 1',
+            'Ethernet2',
+            'Ethernet 2',
+            'Ethernet0',
+            'Ethernet 0',
+            'Ethernet'
+        ]
+        netsh_interfaces = ' '.join(f'"{interface_name}"' for interface_name in interface_names)
+        command = (
+            f'for %i in ({netsh_interfaces}) do ('
+            f'netsh interface ipv4 set address name=%i static {box["ip"]} {netmask} {gateway} 1 && '
+            f'netsh interface ipv4 set dnsservers name=%i static {dns_server} primary && '
+            'exit /b 0'
+            ') & exit /b 1'
+        )
+        Log.info(f'Try netsh IP fallback for {vm_name}')
+        return self._start_guest_program(
+            vm_name,
+            'C:\\Windows\\System32\\cmd.exe',
+            ['/c', command],
+            tries=6,
+            delay=10
+        )
+
     def _bootstrap_windows_guest(self, vm_name, box):
         configure_script = Path(project_path) / 'vagrant' / 'ConfigureRemotingForAnsible.ps1'
         remote_configure_script = 'C:\\Windows\\Temp\\ConfigureRemotingForAnsible.ps1'
@@ -412,6 +442,13 @@ if (-not $assigned) {
             network_script,
             'C:\\Windows\\Temp\\GOAD-BootstrapNetwork.ps1'
         ):
+            return False
+
+        if self._wait_for_guest_ip(vm_name, box['ip'], tries=6):
+            return True
+
+        Log.warning(f'{vm_name} kept an APIPA or unexpected IP after PowerShell bootstrap')
+        if not self._start_windows_netsh_fallback(vm_name, box):
             return False
 
         return self._wait_for_guest_ip(vm_name, box['ip'])
