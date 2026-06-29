@@ -4,6 +4,7 @@ import os
 import shlex
 import ipaddress
 import re
+import socket
 import subprocess
 import tempfile
 import time
@@ -361,6 +362,24 @@ if (-not $assigned) {
         Log.error(f'{vm_name} did not report expected IP {expected_ip}; last reported: {reported}')
         return False
 
+    def _wait_for_tcp_port(self, host, port, label, tries=60, delay=10):
+        Log.info(f'Wait for {label} on {host}:{port}')
+        last_error = ''
+        for attempt in range(1, tries + 1):
+            try:
+                with socket.create_connection((host, port), timeout=5):
+                    Log.success(f'{label} is reachable on {host}:{port}')
+                    return True
+            except OSError as error:
+                last_error = str(error)
+
+            if attempt < tries:
+                Log.info(f'{label} is not reachable yet; retry in {delay}s ({attempt}/{tries})')
+                time.sleep(delay)
+
+        Log.error(f'{label} did not become reachable on {host}:{port}: {last_error}')
+        return False
+
     def _start_windows_netsh_fallback(self, vm_name, box):
         gateway = self._gateway_for_box(box)
         dns_server = self._dns_for_box(box)
@@ -383,7 +402,7 @@ if (-not $assigned) {
             delay=10
         )
 
-    def _bootstrap_windows_guest(self, vm_name, box):
+    def _start_windows_remoting(self, vm_name):
         configure_script = Path(project_path) / 'vagrant' / 'ConfigureRemotingForAnsible.ps1'
         remote_configure_script = 'C:\\Windows\\Temp\\ConfigureRemotingForAnsible.ps1'
         if not self._run_govc_retry([
@@ -408,7 +427,9 @@ if (-not $assigned) {
             delay=10
         ):
             return False
+        return True
 
+    def _bootstrap_windows_guest(self, vm_name, box):
         gateway = self._gateway_for_box(box)
         dns_server = self._dns_for_box(box)
         prefix_length = self._prefix_length()
@@ -425,14 +446,16 @@ if (-not $assigned) {
         ):
             return False
 
-        if self._wait_for_guest_ip(vm_name, box['ip'], tries=6):
-            return True
+        if not self._wait_for_guest_ip(vm_name, box['ip'], tries=6):
+            Log.warning(f'{vm_name} kept an APIPA or unexpected IP after PowerShell bootstrap')
+            if not self._start_windows_netsh_fallback(vm_name, box):
+                return False
+            if not self._wait_for_guest_ip(vm_name, box['ip']):
+                return False
 
-        Log.warning(f'{vm_name} kept an APIPA or unexpected IP after PowerShell bootstrap')
-        if not self._start_windows_netsh_fallback(vm_name, box):
+        if not self._start_windows_remoting(vm_name):
             return False
-
-        return self._wait_for_guest_ip(vm_name, box['ip'])
+        return self._wait_for_tcp_port(box['ip'], 5986, f'{vm_name} WinRM')
 
     def _bootstrap_linux_guest(self, vm_name, box):
         gateway = self._gateway_for_box(box)
