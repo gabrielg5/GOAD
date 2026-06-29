@@ -254,25 +254,14 @@ if (-not $adapter) {
     throw "No connected network adapter found"
 }
 
-Get-NetIPAddress -InterfaceIndex $adapter.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue |
-    Remove-NetIPAddress -Confirm:$false -ErrorAction SilentlyContinue
-Get-NetRoute -InterfaceIndex $adapter.ifIndex -AddressFamily IPv4 -DestinationPrefix "0.0.0.0/0" -ErrorAction SilentlyContinue |
-    Remove-NetRoute -Confirm:$false -ErrorAction SilentlyContinue
-
-try {
-    Set-NetIPInterface -InterfaceIndex $adapter.ifIndex -AddressFamily IPv4 -Dhcp Disabled -ErrorAction SilentlyContinue
-    New-NetIPAddress -InterfaceIndex $adapter.ifIndex -IPAddress $ipAddress -PrefixLength $prefixLength -DefaultGateway $gateway | Out-Null
-    Set-DnsClientServerAddress -InterfaceIndex $adapter.ifIndex -ServerAddresses $dnsServer
-} catch {
-    Write-Output "PowerShell network configuration failed: $($_.Exception.Message)"
-    & netsh.exe interface ipv4 set address name="$($adapter.Name)" static $ipAddress $netmask $gateway 1
-    if ($LASTEXITCODE -ne 0) {
-        throw "netsh address configuration failed with exit code $LASTEXITCODE"
-    }
-    & netsh.exe interface ipv4 set dnsservers name="$($adapter.Name)" static $dnsServer primary
-    if ($LASTEXITCODE -ne 0) {
-        throw "netsh DNS configuration failed with exit code $LASTEXITCODE"
-    }
+Write-Output "Configure IPv4 on $($adapter.Name) with netsh"
+& netsh.exe interface ipv4 set address name="$($adapter.Name)" static $ipAddress $netmask $gateway 1
+if ($LASTEXITCODE -ne 0) {
+    throw "netsh address configuration failed with exit code $LASTEXITCODE"
+}
+& netsh.exe interface ipv4 set dnsservers name="$($adapter.Name)" static $dnsServer primary
+if ($LASTEXITCODE -ne 0) {
+    throw "netsh DNS configuration failed with exit code $LASTEXITCODE"
 }
 
 $assigned = $false
@@ -376,20 +365,12 @@ if (-not $assigned) {
         gateway = self._gateway_for_box(box)
         dns_server = self._dns_for_box(box)
         netmask = self._netmask_from_prefix(self._prefix_length())
-        interface_names = [
-            'Ethernet1',
-            'Ethernet 1',
-            'Ethernet2',
-            'Ethernet 2',
-            'Ethernet0',
-            'Ethernet 0',
-            'Ethernet'
-        ]
-        netsh_interfaces = ' '.join(f'"{interface_name}"' for interface_name in interface_names)
         command = (
-            f'for %i in ({netsh_interfaces}) do ('
-            f'netsh interface ipv4 set address name=%i static {box["ip"]} {netmask} {gateway} 1 && '
-            f'netsh interface ipv4 set dnsservers name=%i static {dns_server} primary && '
+            'for /f "skip=3 tokens=1,2,3,*" %a in ('
+            "'netsh interface show interface'"
+            ') do if /I "%b"=="Connected" ('
+            f'netsh interface ipv4 set address name="%d" static {box["ip"]} {netmask} {gateway} 1 && '
+            f'netsh interface ipv4 set dnsservers name="%d" static {dns_server} primary && '
             'exit /b 0'
             ') & exit /b 1'
         )
