@@ -296,33 +296,36 @@ if (-not $assigned) {
             .replace('__GATEWAY__', gateway) \
             .replace('__DNS_SERVER__', dns_server)
 
-    def _run_guest_program(self, vm_name, program, args=None, tries=6, delay=10):
+    def _start_guest_program(self, vm_name, program, args=None, tries=6, delay=10):
         if args is None:
             args = []
         return self._run_govc_retry([
-            'guest.run',
+            'guest.start',
             '-vm', vm_name,
             '-l', self._guest_login(),
             program,
         ] + args, tries=tries, delay=delay)
 
-    def _upload_and_run_windows_script(self, vm_name, script_content, remote_script, tries=6):
+    def _upload_file_to_guest(self, vm_name, local_path, remote_path, tries=12, delay=10):
+        return self._run_govc_retry([
+            'guest.upload',
+            '-vm', vm_name,
+            '-l', self._guest_login(),
+            local_path,
+            remote_path
+        ], tries=tries, delay=delay)
+
+    def _upload_and_start_windows_script(self, vm_name, script_content, remote_script):
         local_script = None
         try:
             with tempfile.NamedTemporaryFile('w', suffix='.ps1', delete=False, encoding='utf-8') as script_file:
                 script_file.write(script_content)
                 local_script = script_file.name
 
-            if not self._run_govc_retry([
-                'guest.upload',
-                '-vm', vm_name,
-                '-l', self._guest_login(),
-                local_script,
-                remote_script
-            ], tries=12, delay=10):
+            if not self._upload_file_to_guest(vm_name, local_script, remote_script):
                 return False
 
-            return self._run_guest_program(
+            return self._start_guest_program(
                 vm_name,
                 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
                 [
@@ -330,7 +333,7 @@ if (-not $assigned) {
                     '-ExecutionPolicy', 'Bypass',
                     '-File', remote_script
                 ],
-                tries=tries,
+                tries=6,
                 delay=10
             )
         finally:
@@ -353,7 +356,7 @@ if (-not $assigned) {
         Log.info(f'Wait for {vm_name} to report {expected_ip}')
         last_addresses = []
         for attempt in range(1, tries + 1):
-            output = self._capture_govc(['vm.ip', '-v4', '-wait', '20s', vm_name])
+            output = self._capture_govc(['vm.ip', '-a', '-v4', '-wait', '20s', vm_name])
             addresses = self._ipv4_addresses(output)
             if addresses:
                 last_addresses = addresses
@@ -381,7 +384,7 @@ if (-not $assigned) {
         ], tries=12, delay=10):
             return False
 
-        if not self._run_guest_program(
+        if not self._start_guest_program(
             vm_name,
             'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
             [
@@ -404,11 +407,10 @@ if (-not $assigned) {
             gateway,
             dns_server
         )
-        if not self._upload_and_run_windows_script(
+        if not self._upload_and_start_windows_script(
             vm_name,
             network_script,
-            'C:\\Windows\\Temp\\GOAD-BootstrapNetwork.ps1',
-            tries=3
+            'C:\\Windows\\Temp\\GOAD-BootstrapNetwork.ps1'
         ):
             return False
 
@@ -427,13 +429,7 @@ if (-not $assigned) {
             f"sudo ip route replace default via {gateway}; "
             f"echo nameserver {dns_server} | sudo tee /etc/resolv.conf >/dev/null"
         )
-        if not self._run_guest_program(
-            vm_name,
-            '/bin/bash',
-            ['-lc', script],
-            tries=30,
-            delay=10
-        ):
+        if not self._start_guest_program(vm_name, '/bin/bash', ['-lc', script], tries=30, delay=10):
             return False
 
         return self._wait_for_guest_ip(vm_name, box['ip'])
