@@ -4,10 +4,10 @@ import os
 import shlex
 import ipaddress
 import re
-import socket
 import subprocess
 import tempfile
 import time
+import uuid
 from pathlib import Path
 from urllib.parse import quote
 
@@ -305,6 +305,28 @@ if (-not $assigned) {
             remote_path
         ], tries=tries, delay=delay)
 
+    def _download_guest_file_silent(self, vm_name, remote_path, local_path):
+        result = subprocess.run(
+            [
+                self.govc_bin,
+                'guest.download',
+                '-f',
+                '-vm', vm_name,
+                '-l', self._guest_login(),
+                remote_path,
+                local_path
+            ],
+            cwd=self.path,
+            env=self._govc_env(),
+            capture_output=True,
+            text=True
+        )
+        return result.returncode == 0
+
+    @staticmethod
+    def _powershell_quote(value):
+        return "'" + str(value).replace("'", "''") + "'"
+
     def _upload_and_start_windows_script(self, vm_name, script_content, remote_script):
         local_script = None
         try:
@@ -362,22 +384,37 @@ if (-not $assigned) {
         Log.error(f'{vm_name} did not report expected IP {expected_ip}; last reported: {reported}')
         return False
 
-    def _wait_for_tcp_port(self, host, port, label, tries=60, delay=10):
-        Log.info(f'Wait for {label} on {host}:{port}')
-        last_error = ''
-        for attempt in range(1, tries + 1):
-            try:
-                with socket.create_connection((host, port), timeout=5):
-                    Log.success(f'{label} is reachable on {host}:{port}')
+    def _wait_for_guest_marker(self, vm_name, success_marker, error_marker, timeout=900, delay=10):
+        Log.info(f'Wait for guest-side bootstrap on {vm_name}')
+        deadline = time.time() + timeout
+        success_file = None
+        error_file = None
+        attempt = 0
+        try:
+            with tempfile.NamedTemporaryFile(delete=False) as marker_file:
+                success_file = marker_file.name
+            with tempfile.NamedTemporaryFile(delete=False) as marker_file:
+                error_file = marker_file.name
+
+            while time.time() < deadline:
+                attempt += 1
+                if self._download_guest_file_silent(vm_name, success_marker, success_file):
+                    Log.success(f'Guest-side bootstrap completed on {vm_name}')
                     return True
-            except OSError as error:
-                last_error = str(error)
-
-            if attempt < tries:
-                Log.info(f'{label} is not reachable yet; retry in {delay}s ({attempt}/{tries})')
+                if self._download_guest_file_silent(vm_name, error_marker, error_file):
+                    with open(error_file, 'r', encoding='utf-8', errors='replace') as error_openfile:
+                        error_text = error_openfile.read().strip()
+                    Log.error(f'Guest-side bootstrap failed on {vm_name}: {error_text}')
+                    return False
+                if attempt == 1 or attempt % 6 == 0:
+                    Log.info(f'Guest-side bootstrap still running on {vm_name}')
                 time.sleep(delay)
+        finally:
+            for marker_file in (success_file, error_file):
+                if marker_file and os.path.isfile(marker_file):
+                    os.unlink(marker_file)
 
-        Log.error(f'{label} did not become reachable on {host}:{port}: {last_error}')
+        Log.error(f'Guest-side bootstrap timed out on {vm_name}')
         return False
 
     def _start_windows_netsh_fallback(self, vm_name, box):
@@ -405,29 +442,83 @@ if (-not $assigned) {
     def _start_windows_remoting(self, vm_name):
         configure_script = Path(project_path) / 'vagrant' / 'ConfigureRemotingForAnsible.ps1'
         remote_configure_script = 'C:\\Windows\\Temp\\ConfigureRemotingForAnsible.ps1'
-        if not self._run_govc_retry([
-            'guest.upload',
-            '-vm', vm_name,
-            '-l', self._guest_login(),
-            str(configure_script),
-            remote_configure_script
-        ], tries=12, delay=10):
-            return False
+        run_id = uuid.uuid4().hex
+        remote_wrapper_script = f'C:\\Windows\\Temp\\GOAD-ConfigureRemoting-{run_id}.ps1'
+        success_marker = f'C:\\Windows\\Temp\\GOAD-ConfigureRemoting-{run_id}.done'
+        error_marker = f'C:\\Windows\\Temp\\GOAD-ConfigureRemoting-{run_id}.err'
+        log_file = f'C:\\Windows\\Temp\\GOAD-ConfigureRemoting-{run_id}.log'
+        wrapper_content = f'''
+$ErrorActionPreference = "Stop"
+$script = {self._powershell_quote(remote_configure_script)}
+$successMarker = {self._powershell_quote(success_marker)}
+$errorMarker = {self._powershell_quote(error_marker)}
+$logFile = {self._powershell_quote(log_file)}
 
-        if not self._start_guest_program(
-            vm_name,
-            'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
-            [
-                '-NoProfile',
-                '-ExecutionPolicy', 'Bypass',
-                '-File', remote_configure_script,
-                '-SkipNetworkProfileCheck'
-            ],
-            tries=3,
-            delay=10
-        ):
-            return False
-        return True
+Remove-Item -LiteralPath $successMarker -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath $errorMarker -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath $logFile -Force -ErrorAction SilentlyContinue
+
+try {{
+    & $script -SkipNetworkProfileCheck -Verbose 4>&1 3>&1 2>&1 |
+        Out-File -LiteralPath $logFile -Encoding UTF8
+
+    $service = Get-Service -Name WinRM -ErrorAction Stop
+    if ($service.Status -ne "Running") {{
+        throw "WinRM service status is $($service.Status)"
+    }}
+
+    $listeners = winrm enumerate winrm/config/listener
+    if (-not ($listeners | Select-String -Pattern "Transport = HTTPS")) {{
+        throw "WinRM HTTPS listener is missing"
+    }}
+
+    $listening = netstat -ano | Select-String -Pattern "(:5986\\s+.*LISTENING)"
+    if (-not $listening) {{
+        throw "WinRM HTTPS port 5986 is not listening inside the guest"
+    }}
+
+    $sessionOptions = New-PSSessionOption -SkipCACheck -SkipCNCheck -SkipRevocationCheck
+    $session = New-PSSession -UseSSL -ComputerName localhost -SessionOption $sessionOptions -ErrorAction Stop
+    if ($session) {{
+        Remove-PSSession $session
+    }}
+
+    "ok" | Set-Content -LiteralPath $successMarker -Encoding ASCII
+}} catch {{
+    $_ | Out-String | Set-Content -LiteralPath $errorMarker -Encoding UTF8
+    if (Test-Path -LiteralPath $logFile) {{
+        Get-Content -LiteralPath $logFile | Add-Content -LiteralPath $errorMarker
+    }}
+}}
+'''
+        local_wrapper_script = None
+        try:
+            with tempfile.NamedTemporaryFile('w', suffix='.ps1', delete=False, encoding='utf-8') as script_file:
+                script_file.write(wrapper_content)
+                local_wrapper_script = script_file.name
+
+            if not self._upload_file_to_guest(vm_name, str(configure_script), remote_configure_script):
+                return False
+            if not self._upload_file_to_guest(vm_name, local_wrapper_script, remote_wrapper_script):
+                return False
+
+            if not self._start_guest_program(
+                vm_name,
+                'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
+                [
+                    '-NoProfile',
+                    '-ExecutionPolicy', 'Bypass',
+                    '-File', remote_wrapper_script
+                ],
+                tries=3,
+                delay=10
+            ):
+                return False
+
+            return self._wait_for_guest_marker(vm_name, success_marker, error_marker)
+        finally:
+            if local_wrapper_script and os.path.isfile(local_wrapper_script):
+                os.unlink(local_wrapper_script)
 
     def _bootstrap_windows_guest(self, vm_name, box):
         gateway = self._gateway_for_box(box)
@@ -455,7 +546,7 @@ if (-not $assigned) {
 
         if not self._start_windows_remoting(vm_name):
             return False
-        return self._wait_for_tcp_port(box['ip'], 5986, f'{vm_name} WinRM')
+        return True
 
     def _bootstrap_linux_guest(self, vm_name, box):
         gateway = self._gateway_for_box(box)
