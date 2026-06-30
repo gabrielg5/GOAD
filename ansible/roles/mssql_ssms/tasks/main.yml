@@ -1,25 +1,158 @@
-- name: check SQL Server Manager Studio installer exists
+- name: create a directory for SSMS installer download
+  win_file:
+    path: c:\setup\mssql
+    state: directory
+
+- name: check SSMS installation already done
+  win_shell: |
+    $ErrorActionPreference = 'SilentlyContinue'
+    $uninstallPaths = @(
+        'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*',
+        'HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'
+    )
+    $installed = Get-ItemProperty -Path $uninstallPaths | Where-Object {
+        $_.DisplayName -match '^(Microsoft )?SQL Server Management Studio'
+    } | Select-Object -First 1
+
+    $installPaths = @(@(
+        'C:\Program Files (x86)\Microsoft SQL Server Management Studio 18',
+        'C:\Program Files (x86)\Microsoft SQL Server Management Studio 19',
+        'C:\Program Files (x86)\Microsoft SQL Server Management Studio 20',
+        'C:\Program Files\Microsoft SQL Server Management Studio 21',
+        'C:\Program Files\Microsoft SQL Server Management Studio 22'
+    ) | Where-Object { Test-Path $_ })
+
+    if ($installed) {
+        Write-Output "SSMS already installed: $($installed.DisplayName) $($installed.DisplayVersion)"
+        exit 0
+    }
+    if ($installPaths) {
+        Write-Output "SSMS already installed: $($installPaths[0])"
+        exit 0
+    }
+
+    Write-Output 'SSMS is not installed'
+    exit 1
+  register: ssms_installation
+  changed_when: false
+  failed_when: false
+
+- name: check SQL Server Management Studio installer exists
   win_stat:
     path: c:\setup\mssql\SSMS_installer.exe
   register: ssms_installer_file
+  when: ssms_installation.rc != 0
 
 - name: get the installer
   win_get_url:
-      url: 'https://aka.ms/ssmsfullsetup'
-      dest: 'c:\setup\mssql\SSMS_installer.exe'
-  when: not ssms_installer_file.stat.exists
-
-- name: check SSMS installation already done
-  win_stat:
-    path: "C:\\Program Files (x86)\\Microsoft SQL Server Management Studio 18"
-  register: ssms_installation
+    url: "{{ ssms_download_url | default('https://aka.ms/ssmsfullsetup') }}"
+    dest: c:\setup\mssql\SSMS_installer.exe
+  when:
+    - ssms_installation.rc != 0
+    - not ssms_installer_file.stat.exists
 
 - name: Install SSMS
-  win_command: c:\setup\mssql\SSMS_installer.exe /install /quiet /norestart
-  register: install_ssmss
-  when: not ssms_installation.stat.exists
+  win_shell: |
+    $ErrorActionPreference = 'Stop'
+
+    $installer = 'c:\setup\mssql\SSMS_installer.exe'
+    $timeoutSeconds = {{ ssms_install_timeout | default(3600) | int }}
+    $logPath = 'c:\setup\mssql\SSMS_install.log'
+    $stdoutPath = 'c:\setup\mssql\SSMS_install.stdout.log'
+    $stderrPath = 'c:\setup\mssql\SSMS_install.stderr.log'
+    $successExitCodes = @(0, 3010, 1641)
+
+    function Test-SsmsInstalled {
+        $uninstallPaths = @(
+            'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*',
+            'HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'
+        )
+        $installed = Get-ItemProperty -Path $uninstallPaths -ErrorAction SilentlyContinue | Where-Object {
+            $_.DisplayName -match '^(Microsoft )?SQL Server Management Studio'
+        } | Select-Object -First 1
+
+        $installPaths = @(@(
+            'C:\Program Files (x86)\Microsoft SQL Server Management Studio 18',
+            'C:\Program Files (x86)\Microsoft SQL Server Management Studio 19',
+            'C:\Program Files (x86)\Microsoft SQL Server Management Studio 20',
+            'C:\Program Files\Microsoft SQL Server Management Studio 21',
+            'C:\Program Files\Microsoft SQL Server Management Studio 22'
+        ) | Where-Object { Test-Path $_ })
+
+        return [bool]($installed -or $installPaths)
+    }
+
+    function Stop-SsmsInstallerProcesses {
+        Get-Process -Name 'SSMS_installer', 'vs_setup_bootstrapper' -ErrorAction SilentlyContinue |
+            Stop-Process -Force -ErrorAction SilentlyContinue
+    }
+
+    function Invoke-SsmsInstaller {
+        param(
+            [string] $Mode,
+            [string[]] $Arguments
+        )
+
+        Add-Content -Path $logPath -Value "[$(Get-Date -Format o)] Starting SSMS $Mode install: $installer $($Arguments -join ' ')"
+        $process = Start-Process -FilePath $installer `
+            -ArgumentList $Arguments `
+            -PassThru `
+            -RedirectStandardOutput $stdoutPath `
+            -RedirectStandardError $stderrPath
+
+        if (-not $process.WaitForExit($timeoutSeconds * 1000)) {
+            Add-Content -Path $logPath -Value "[$(Get-Date -Format o)] SSMS $Mode install timed out after $timeoutSeconds seconds"
+            Stop-SsmsInstallerProcesses
+            throw "SSMS $Mode install timed out after $timeoutSeconds seconds. See $logPath, $stdoutPath and $stderrPath"
+        }
+
+        Add-Content -Path $logPath -Value "[$(Get-Date -Format o)] SSMS $Mode install exited with code $($process.ExitCode)"
+        return $process.ExitCode
+    }
+
+    if (Test-SsmsInstalled) {
+        Write-Output 'SSMS is already installed'
+        exit 0
+    }
+
+    if (-not (Test-Path $installer)) {
+        throw "SSMS installer not found at $installer"
+    }
+
+    $fileInfo = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($installer)
+    $installerInfo = "$($fileInfo.ProductName) $($fileInfo.FileDescription) $($fileInfo.OriginalFilename)"
+    $currentArguments = @('--quiet', '--wait', '--norestart')
+    $legacyArguments = @('/install', '/quiet', '/norestart')
+
+    if ($installerInfo -match 'Visual Studio|vs_') {
+        $attempts = @(
+            @{ Mode = 'current'; Arguments = $currentArguments },
+            @{ Mode = 'legacy'; Arguments = $legacyArguments }
+        )
+    } else {
+        $attempts = @(
+            @{ Mode = 'legacy'; Arguments = $legacyArguments },
+            @{ Mode = 'current'; Arguments = $currentArguments }
+        )
+    }
+
+    foreach ($attempt in $attempts) {
+        $exitCode = Invoke-SsmsInstaller -Mode $attempt['Mode'] -Arguments $attempt['Arguments']
+        if ($successExitCodes -contains $exitCode) {
+            Start-Sleep -Seconds 10
+        }
+        if (Test-SsmsInstalled) {
+            Write-Output "SSMS install completed with code $exitCode"
+            exit 0
+        }
+        Add-Content -Path $logPath -Value "[$(Get-Date -Format o)] SSMS was not detected after $($attempt['Mode']) install attempt"
+    }
+
+    throw "SSMS install failed. See $logPath, $stdoutPath and $stderrPath"
+  register: install_ssms
+  when: ssms_installation.rc != 0
 
 - name: Reboot after install
   win_reboot:
     reboot_timeout: 600
-  when: not ssms_installation.stat.exists
+  when: ssms_installation.rc != 0
