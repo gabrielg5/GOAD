@@ -102,6 +102,8 @@ class Config:
         config.set('vsphere', 'vsphere_ipv4_gateway', '')
         config.set('vsphere', 'vsphere_ipv4_prefix_length', '')
         config.set('vsphere', 'vsphere_dns_server', '')
+        config.set('vsphere', 'vsphere_guest_operations_timeout', '1800')
+        config.set('vsphere', 'vsphere_guest_operations_delay', '10')
         config.set('vsphere', '; optional VM name prefix, leave empty to use the GOAD instance id')
         config.set('vsphere', 'vsphere_vm_name_prefix', '')
         config.set('vsphere', 'vsphere_overwrite', 'false')

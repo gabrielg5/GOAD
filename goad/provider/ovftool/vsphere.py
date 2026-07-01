@@ -46,6 +46,14 @@ class VsphereProvider(Provider):
         self.ipv4_prefix_length = config.get_value('vsphere', 'vsphere_ipv4_prefix_length', '')
         self.ipv4_gateway = config.get_value('vsphere', 'vsphere_ipv4_gateway', '')
         self.dns_server = config.get_value('vsphere', 'vsphere_dns_server', '')
+        self.guest_operations_timeout = self._int_value(
+            config.get_value('vsphere', 'vsphere_guest_operations_timeout', '1800'),
+            1800
+        )
+        self.guest_operations_delay = self._int_value(
+            config.get_value('vsphere', 'vsphere_guest_operations_delay', '10'),
+            10
+        )
 
     def check(self):
         checks = [
@@ -59,6 +67,13 @@ class VsphereProvider(Provider):
     @staticmethod
     def _url_quote(value):
         return quote(value, safe='')
+
+    @staticmethod
+    def _int_value(value, default):
+        try:
+            return int(str(value).strip())
+        except (TypeError, ValueError):
+            return default
 
     def _password_needs_prompt(self):
         if self.password is None:
@@ -156,6 +171,52 @@ class VsphereProvider(Provider):
             if attempt < tries:
                 Log.info(f'govc command failed, retry in {delay}s ({attempt}/{tries})')
                 time.sleep(delay)
+        return False
+
+    def _run_govc_guest_retry(self, args, timeout=None, delay=None):
+        timeout = self.guest_operations_timeout if timeout is None else timeout
+        delay = self.guest_operations_delay if delay is None else delay
+        deadline = time.time() + timeout
+        attempt = 0
+        last_output = ''
+
+        self._log_command([self.govc_bin] + args)
+        while True:
+            result = subprocess.run(
+                [self.govc_bin] + args,
+                cwd=self.path,
+                env=self._govc_env(),
+                capture_output=True,
+                text=True
+            )
+            if result.returncode == 0:
+                return True
+
+            last_output = '\n'.join(
+                output.strip()
+                for output in (result.stdout, result.stderr)
+                if output and output.strip()
+            )
+            lower_output = last_output.lower()
+            if any(error in lower_output for error in (
+                'cannot complete login',
+                'incorrect user name or password',
+                'authentication failed'
+            )):
+                Log.error(last_output)
+                return False
+
+            if time.time() >= deadline:
+                break
+
+            attempt += 1
+            if attempt == 1 or attempt % 6 == 0:
+                Log.info(f'VMware Tools guest operations are not ready yet; retry in {delay}s')
+            time.sleep(delay)
+
+        Log.error(f'VMware Tools guest operations did not become ready after {timeout}s')
+        if last_output:
+            Log.error(last_output)
         return False
 
     def _instance_id(self):
@@ -286,24 +347,39 @@ if (-not $assigned) {
             .replace('__GATEWAY__', gateway) \
             .replace('__DNS_SERVER__', dns_server)
 
-    def _start_guest_program(self, vm_name, program, args=None, tries=6, delay=10):
+    def _start_guest_program(self, vm_name, program, args=None, tries=None, delay=None):
         if args is None:
             args = []
-        return self._run_govc_retry([
+        command = [
             'guest.start',
             '-vm', vm_name,
             '-l', self._guest_login(),
             program,
-        ] + args, tries=tries, delay=delay)
+        ] + args
+        if tries is not None:
+            return self._run_govc_retry(command, tries=tries, delay=delay or 10)
+        return self._run_govc_guest_retry(command, delay=delay)
 
-    def _upload_file_to_guest(self, vm_name, local_path, remote_path, tries=12, delay=10):
-        return self._run_govc_retry([
+    def _upload_file_to_guest(self, vm_name, local_path, remote_path, tries=None, delay=None):
+        command = [
             'guest.upload',
             '-vm', vm_name,
             '-l', self._guest_login(),
             local_path,
             remote_path
-        ], tries=tries, delay=delay)
+        ]
+        if tries is not None:
+            return self._run_govc_retry(command, tries=tries, delay=delay or 10)
+        return self._run_govc_guest_retry(command, delay=delay)
+
+    def _wait_for_guest_operations(self, vm_name, probe_path):
+        Log.info(f'Wait for VMware Tools guest operations on {vm_name}')
+        return self._run_govc_guest_retry([
+            'guest.ls',
+            '-vm', vm_name,
+            '-l', self._guest_login(),
+            probe_path
+        ])
 
     def _download_guest_file_silent(self, vm_name, remote_path, local_path):
         result = subprocess.run(
@@ -344,13 +420,68 @@ if (-not $assigned) {
                     '-NoProfile',
                     '-ExecutionPolicy', 'Bypass',
                     '-File', remote_script
-                ],
-                tries=6,
-                delay=10
+                ]
             )
         finally:
             if local_script and os.path.isfile(local_script):
                 os.unlink(local_script)
+
+    def _upload_start_and_wait_windows_script(self, vm_name, script_content, remote_script, task_name, timeout=900):
+        run_id = uuid.uuid4().hex
+        remote_wrapper_script = f'C:\\Windows\\Temp\\GOAD-{task_name}-{run_id}.ps1'
+        success_marker = f'C:\\Windows\\Temp\\GOAD-{task_name}-{run_id}.done'
+        error_marker = f'C:\\Windows\\Temp\\GOAD-{task_name}-{run_id}.err'
+        log_file = f'C:\\Windows\\Temp\\GOAD-{task_name}-{run_id}.log'
+        wrapper_content = f'''
+$ErrorActionPreference = "Stop"
+$script = {self._powershell_quote(remote_script)}
+$successMarker = {self._powershell_quote(success_marker)}
+$errorMarker = {self._powershell_quote(error_marker)}
+$logFile = {self._powershell_quote(log_file)}
+
+Remove-Item -LiteralPath $successMarker -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath $errorMarker -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath $logFile -Force -ErrorAction SilentlyContinue
+
+try {{
+    & $script 4>&1 3>&1 2>&1 | Out-File -LiteralPath $logFile -Encoding UTF8
+    "ok" | Set-Content -LiteralPath $successMarker -Encoding ASCII
+}} catch {{
+    $_ | Out-String | Set-Content -LiteralPath $errorMarker -Encoding UTF8
+    if (Test-Path -LiteralPath $logFile) {{
+        Get-Content -LiteralPath $logFile | Add-Content -LiteralPath $errorMarker
+    }}
+}}
+'''
+        local_script = None
+        local_wrapper_script = None
+        try:
+            with tempfile.NamedTemporaryFile('w', suffix='.ps1', delete=False, encoding='utf-8') as script_file:
+                script_file.write(script_content)
+                local_script = script_file.name
+            with tempfile.NamedTemporaryFile('w', suffix='.ps1', delete=False, encoding='utf-8') as wrapper_file:
+                wrapper_file.write(wrapper_content)
+                local_wrapper_script = wrapper_file.name
+
+            if not self._upload_file_to_guest(vm_name, local_script, remote_script):
+                return False
+            if not self._upload_file_to_guest(vm_name, local_wrapper_script, remote_wrapper_script):
+                return False
+            if not self._start_guest_program(
+                vm_name,
+                'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
+                [
+                    '-NoProfile',
+                    '-ExecutionPolicy', 'Bypass',
+                    '-File', remote_wrapper_script
+                ]
+            ):
+                return False
+            return self._wait_for_guest_marker(vm_name, success_marker, error_marker, timeout=timeout)
+        finally:
+            for script_file in (local_script, local_wrapper_script):
+                if script_file and os.path.isfile(script_file):
+                    os.unlink(script_file)
 
     @staticmethod
     def _ipv4_addresses(output):
@@ -434,9 +565,7 @@ if (-not $assigned) {
         return self._start_guest_program(
             vm_name,
             'C:\\Windows\\System32\\cmd.exe',
-            ['/c', command],
-            tries=6,
-            delay=10
+            ['/c', command]
         )
 
     def _start_windows_remoting(self, vm_name):
@@ -509,9 +638,7 @@ try {{
                     '-NoProfile',
                     '-ExecutionPolicy', 'Bypass',
                     '-File', remote_wrapper_script
-                ],
-                tries=3,
-                delay=10
+                ]
             ):
                 return False
 
@@ -530,14 +657,16 @@ try {{
             gateway,
             dns_server
         )
-        if not self._upload_and_start_windows_script(
+        if not self._upload_start_and_wait_windows_script(
             vm_name,
             network_script,
-            'C:\\Windows\\Temp\\GOAD-BootstrapNetwork.ps1'
+            'C:\\Windows\\Temp\\GOAD-BootstrapNetwork.ps1',
+            'BootstrapNetwork',
+            timeout=self.guest_operations_timeout
         ):
             return False
 
-        if not self._wait_for_guest_ip(vm_name, box['ip'], tries=6):
+        if not self._wait_for_guest_ip(vm_name, box['ip'], tries=12):
             Log.warning(f'{vm_name} kept an APIPA or unexpected IP after PowerShell bootstrap')
             if not self._start_windows_netsh_fallback(vm_name, box):
                 return False
@@ -572,7 +701,11 @@ try {{
         os_name = box.get('os', '').lower()
         Log.info(f'Bootstrap guest network for {vm_name} ({box["ip"]}/{self._prefix_length()})')
         if os_name == 'windows':
+            if not self._wait_for_guest_operations(vm_name, 'C:\\Windows\\Temp'):
+                return False
             return self._bootstrap_windows_guest(vm_name, box)
+        if not self._wait_for_guest_operations(vm_name, '/tmp'):
+            return False
         return self._bootstrap_linux_guest(vm_name, box)
 
     def _network_devices(self, vm_name):
