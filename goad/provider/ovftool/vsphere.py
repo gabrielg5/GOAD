@@ -54,6 +54,10 @@ class VsphereProvider(Provider):
             config.get_value('vsphere', 'vsphere_guest_operations_delay', '10'),
             10
         )
+        self.network_bootstrap_timeout = self._int_value(
+            config.get_value('vsphere', 'vsphere_network_bootstrap_timeout', '600'),
+            600
+        )
 
     def check(self):
         checks = [
@@ -561,7 +565,7 @@ try {{
             'exit /b 0'
             ') & exit /b 1'
         )
-        Log.info(f'Try netsh IP fallback for {vm_name}')
+        Log.info(f'Try netsh IP bootstrap for {vm_name}')
         return self._start_guest_program(
             vm_name,
             'C:\\Windows\\System32\\cmd.exe',
@@ -651,6 +655,16 @@ try {{
         gateway = self._gateway_for_box(box)
         dns_server = self._dns_for_box(box)
         prefix_length = self._prefix_length()
+
+        if self._start_windows_netsh_fallback(vm_name, box):
+            if self._wait_for_guest_ip(vm_name, box['ip']):
+                if not self._start_windows_remoting(vm_name):
+                    return False
+                return True
+            Log.warning(f'{vm_name} kept an APIPA or unexpected IP after netsh bootstrap')
+        else:
+            Log.warning(f'netsh IP bootstrap did not start for {vm_name}')
+
         network_script = self._windows_network_script(
             box['ip'],
             prefix_length,
@@ -662,16 +676,12 @@ try {{
             network_script,
             'C:\\Windows\\Temp\\GOAD-BootstrapNetwork.ps1',
             'BootstrapNetwork',
-            timeout=self.guest_operations_timeout
+            timeout=self.network_bootstrap_timeout
         ):
             return False
 
-        if not self._wait_for_guest_ip(vm_name, box['ip'], tries=12):
-            Log.warning(f'{vm_name} kept an APIPA or unexpected IP after PowerShell bootstrap')
-            if not self._start_windows_netsh_fallback(vm_name, box):
-                return False
-            if not self._wait_for_guest_ip(vm_name, box['ip']):
-                return False
+        if not self._wait_for_guest_ip(vm_name, box['ip']):
+            return False
 
         if not self._start_windows_remoting(vm_name):
             return False
