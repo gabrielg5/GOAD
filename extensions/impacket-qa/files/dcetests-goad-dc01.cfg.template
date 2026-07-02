@@ -1,0 +1,13 @@
+[global]
+
+[TCPTransport]
+servername = KINGSLANDING
+machine = {{ip_range}}.10
+username = impacket.admin
+password = Imp@cket-Admin123!
+hashes = c1aedf25a6ca0c2e0ce38ea090044b1a:35d629757629c0f077775bda3615e866
+aesKey256 = c8a99bc84334c6d9fc8102d959d3df0a0f3ea178d4e4a99f7e5ef60e6bc46fda
+aesKey128 = 2b585f9ae41663659fe149228ee025cd
+domain = sevenkingdoms.local
+machineuser = IMPACKETQA$
+machineuserhashes = c1aedf25a6ca0c2e2512fcab26e758ca:f94c5fd22c904bd00defc83334635068

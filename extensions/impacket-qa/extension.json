@@ -1,0 +1,9 @@
+{
+    "name": "impacket-qa",
+    "description": "Configure GOAD hosts for Impacket regression testing",
+    "machines": [],
+    "compatibility": [
+        "GOAD"
+    ],
+    "impact": "No new VMs. Adds Impacket QA users, a known machine account, LDAPS, DHCP, and Windows service settings on existing GOAD hosts."
+}

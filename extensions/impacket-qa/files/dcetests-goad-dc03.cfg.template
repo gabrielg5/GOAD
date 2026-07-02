@@ -1,0 +1,13 @@
+[global]
+
+[TCPTransport]
+servername = MEEREEN
+machine = {{ip_range}}.12
+username = impacket.admin
+password = Imp@cket-Admin123!
+hashes = c1aedf25a6ca0c2e0ce38ea090044b1a:35d629757629c0f077775bda3615e866
+aesKey256 = c0c7a6572efe21c83f2ebab16b13a1006e0073543c8e0900c60faf6cdd3e4150
+aesKey128 = 4826b87ec6016d60b21606439b25e314
+domain = essos.local
+machineuser = IMPACKETQA$
+machineuserhashes = c1aedf25a6ca0c2e2512fcab26e758ca:f94c5fd22c904bd00defc83334635068

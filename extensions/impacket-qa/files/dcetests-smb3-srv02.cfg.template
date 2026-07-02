@@ -1,0 +1,13 @@
+[global]
+
+[TCPTransport]
+servername = CASTELBLACK
+machine = {{ip_range}}.22
+username = impacket.admin
+password = Imp@cket-Admin123!
+hashes = c1aedf25a6ca0c2e0ce38ea090044b1a:35d629757629c0f077775bda3615e866
+aesKey256 = e3fee0007d605a92338acf7506b3c8535a6dfb1aa8d11937255356cafba5624e
+aesKey128 = 17c80921947ef5ef746c137ab686c7bc
+domain = north.sevenkingdoms.local
+machineuser = IMPACKETQA$
+machineuserhashes = c1aedf25a6ca0c2e2512fcab26e758ca:f94c5fd22c904bd00defc83334635068

@@ -1,0 +1,383 @@
+---
+- import_playbook: "../../../ansible/data.yml"
+  vars:
+    data_path: "../ad/{{domain_name}}/data/"
+  tags: 'data'
+
+- name: Configure Impacket QA identities
+  hosts: impacket_qa_identity_dcs
+  vars:
+    domain: "{{ lab.hosts[dict_key].domain }}"
+    domain_username: "{{ domain }}\\{{ admin_user }}"
+    domain_password: "{{ lab.domains[domain].domain_password }}"
+    impacket_qa_admin_password: "Imp@cket-Admin123!"
+    impacket_qa_operator_password: "Imp@cket-Operator123!"
+    impacket_qa_user_password: "Imp@cket-User123!"
+    impacket_qa_protected_password: "Imp@cket-Protected123!"
+    impacket_qa_unicode_password: "Imp@cket-Unicode123!"
+    impacket_qa_machine_name: "IMPACKETQA"
+    impacket_qa_machine_password: "Imp@cket-Machine123!"
+  tasks:
+    - name: Create Impacket QA users, groups, and machine account
+      ansible.windows.win_powershell:
+        script: |
+          [CmdletBinding()]
+          param (
+              [String] $AdminPassword,
+              [String] $OperatorPassword,
+              [String] $UserPassword,
+              [String] $ProtectedPassword,
+              [String] $UnicodePassword,
+              [String] $MachineName,
+              [String] $MachinePassword
+          )
+
+          Import-Module ActiveDirectory
+          $ErrorActionPreference = "Stop"
+          $changed = $false
+          $dnsRoot = (Get-ADDomain).DNSRoot
+
+          function To-SecureStringValue([string] $PlainText) {
+              ConvertTo-SecureString -String $PlainText -AsPlainText -Force
+          }
+
+          function Ensure-Group([string] $Name) {
+              $group = Get-ADGroup -Filter "Name -eq '$Name'" -ErrorAction SilentlyContinue
+              if ($null -eq $group) {
+                  New-ADGroup -Name $Name -SamAccountName $Name -GroupCategory Security -GroupScope Global
+                  $script:changed = $true
+              }
+          }
+
+          function Ensure-Membership([string] $GroupName, [string] $MemberSam) {
+              $isMember = Get-ADGroupMember -Identity $GroupName -Recursive -ErrorAction SilentlyContinue |
+                  Where-Object { $_.SamAccountName -eq $MemberSam }
+              if ($null -eq $isMember) {
+                  Add-ADGroupMember -Identity $GroupName -Members $MemberSam
+                  $script:changed = $true
+              }
+          }
+
+          function Ensure-User([string] $Sam, [string] $Name, [string] $Password, [string[]] $Groups) {
+              $user = Get-ADUser -Identity $Sam -ErrorAction SilentlyContinue
+              if ($null -eq $user) {
+                  New-ADUser `
+                      -Name $Name `
+                      -SamAccountName $Sam `
+                      -UserPrincipalName "$Sam@$dnsRoot" `
+                      -AccountPassword (To-SecureStringValue $Password) `
+                      -Enabled $true `
+                      -ChangePasswordAtLogon $false `
+                      -PasswordNeverExpires $true `
+                      -KerberosEncryptionType AES128,AES256,RC4
+                  $script:changed = $true
+              } else {
+                  if (-not $user.Enabled) {
+                      Enable-ADAccount -Identity $Sam
+                      $script:changed = $true
+                  }
+                  Set-ADUser -Identity $Sam -PasswordNeverExpires $true -KerberosEncryptionType AES128,AES256,RC4
+              }
+
+              foreach ($group in $Groups) {
+                  Ensure-Membership $group $Sam
+              }
+          }
+
+          Ensure-Group "Grupo de prueba"
+
+          Ensure-User "impacket.admin" "Impacket QA Admin" $AdminPassword @("Domain Admins")
+          Ensure-User "impacket.operator" "Impacket QA Operator" $OperatorPassword @("Account Operators", "Backup Operators")
+          Ensure-User "impacket.protected" "Impacket QA Protected" $ProtectedPassword @("Protected Users")
+
+          for ($i = 1; $i -le 9; $i++) {
+              $sam = "impacket.user$i"
+              Ensure-User $sam "Impacket QA User $i" $UserPassword @()
+          }
+
+          $unicodeSam = [string]::Concat([char]0x65e0, [char]0x540d, [char]0x6c0f)
+          Ensure-User $unicodeSam $unicodeSam $UnicodePassword @("Grupo de prueba")
+
+          $machineSam = $MachineName + '$'
+          $machine = Get-ADComputer -LDAPFilter "(sAMAccountName=$machineSam)" -ErrorAction SilentlyContinue
+          if ($null -eq $machine) {
+              New-ADComputer `
+                  -Name $MachineName `
+                  -SamAccountName $machineSam `
+                  -AccountPassword (To-SecureStringValue $MachinePassword) `
+                  -Enabled $true
+              $changed = $true
+          }
+
+          $Ansible.Changed = $changed
+        parameters:
+          AdminPassword: "{{ impacket_qa_admin_password }}"
+          OperatorPassword: "{{ impacket_qa_operator_password }}"
+          UserPassword: "{{ impacket_qa_user_password }}"
+          ProtectedPassword: "{{ impacket_qa_protected_password }}"
+          UnicodePassword: "{{ impacket_qa_unicode_password }}"
+          MachineName: "{{ impacket_qa_machine_name }}"
+          MachinePassword: "{{ impacket_qa_machine_password }}"
+      vars:
+        ansible_become: yes
+        ansible_become_method: runas
+        ansible_become_user: "{{ domain_username }}"
+        ansible_become_password: "{{ domain_password }}"
+
+- name: Configure LDAPS certificates
+  hosts: impacket_qa_ldaps
+  vars:
+    domain: "{{ lab.hosts[dict_key].domain }}"
+    domain_username: "{{ domain }}\\{{ admin_user }}"
+    domain_password: "{{ lab.domains[domain].domain_password }}"
+    impacket_qa_hostname: "{{ lab.hosts[dict_key].hostname }}"
+    impacket_qa_fqdn: "{{ lab.hosts[dict_key].hostname }}.{{ domain }}"
+  tasks:
+    - name: Create self-signed LDAPS certificate
+      ansible.windows.win_powershell:
+        script: |
+          [CmdletBinding()]
+          param (
+              [String] $HostName,
+              [String] $Fqdn
+          )
+
+          $ErrorActionPreference = "Stop"
+          $friendlyName = "GOAD Impacket QA LDAPS $Fqdn"
+          $changed = $false
+
+          $cert = Get-ChildItem Cert:\LocalMachine\My |
+              Where-Object { $_.FriendlyName -eq $friendlyName } |
+              Select-Object -First 1
+
+          if ($null -eq $cert) {
+              $dnsNames = @($Fqdn, $HostName, $env:COMPUTERNAME, $env:COMPUTERNAME.ToLower())
+              $cert = New-SelfSignedCertificate `
+                  -DnsName $dnsNames `
+                  -CertStoreLocation Cert:\LocalMachine\My `
+                  -KeyAlgorithm RSA `
+                  -KeyLength 2048 `
+                  -KeySpec KeyExchange `
+                  -NotAfter (Get-Date).AddYears(5) `
+                  -FriendlyName $friendlyName `
+                  -TextExtension @("2.5.29.37={text}1.3.6.1.5.5.7.3.1")
+              $changed = $true
+          }
+
+          $rootCert = Get-ChildItem Cert:\LocalMachine\Root |
+              Where-Object { $_.Thumbprint -eq $cert.Thumbprint } |
+              Select-Object -First 1
+
+          if ($null -eq $rootCert) {
+              $exportPath = Join-Path $env:TEMP "$($cert.Thumbprint).cer"
+              Export-Certificate -Cert $cert -FilePath $exportPath | Out-Null
+              Import-Certificate -FilePath $exportPath -CertStoreLocation Cert:\LocalMachine\Root | Out-Null
+              Remove-Item -LiteralPath $exportPath -Force
+              $changed = $true
+          }
+
+          $Ansible.Changed = $changed
+        parameters:
+          HostName: "{{ impacket_qa_hostname }}"
+          Fqdn: "{{ impacket_qa_fqdn }}"
+      register: impacket_qa_ldaps_cert
+      vars:
+        ansible_become: yes
+        ansible_become_method: runas
+        ansible_become_user: "{{ domain_username }}"
+        ansible_become_password: "{{ domain_password }}"
+
+    - name: Reboot DC after LDAPS certificate creation
+      ansible.windows.win_reboot:
+      when: impacket_qa_ldaps_cert.changed
+
+- name: Configure DHCP for Impacket QA
+  hosts: impacket_qa_dhcp
+  vars:
+    domain: "{{ lab.hosts[dict_key].domain }}"
+    domain_username: "{{ domain }}\\{{ admin_user }}"
+    domain_password: "{{ lab.domains[domain].domain_password }}"
+    dc_key: "{{ lab.domains[domain].dc }}"
+    dc_name: "{{ lab.hosts[dc_key].hostname }}"
+    dc_fqdn: "{{ dc_name }}.{{ domain }}"
+    dc_ip: "{{ hostvars[dc_key].ansible_host }}"
+    ip_root: "{{ '.'.join(dc_ip.split('.')[:3]) }}"
+    ip_from: "{{ ip_root }}.150"
+    ip_to: "{{ ip_root }}.200"
+    ip_mask: "255.255.255.0"
+    lease_duration: "1.00:00:00"
+    dns_ip: "{{ dc_ip }}"
+  tasks:
+    - name: Install DHCP Server
+      ansible.windows.win_feature:
+        name: DHCP
+        state: present
+        include_management_tools: yes
+      register: impacket_qa_dhcp_feature
+
+    - name: Reboot after DHCP Server installation
+      ansible.windows.win_reboot:
+      when: impacket_qa_dhcp_feature.reboot_required
+
+    - name: Authorize DHCP Server in AD
+      ansible.windows.win_powershell:
+        script: |
+          [CmdletBinding()]
+          param (
+              [String] $DnsName,
+              [String] $IpAddress
+          )
+
+          $ErrorActionPreference = "Stop"
+          $changed = $false
+
+          $authorized = Get-DhcpServerInDC -ErrorAction SilentlyContinue |
+              Where-Object {
+                  $_.DnsName -ieq $DnsName -or
+                  @($_.IPAddress | ForEach-Object { $_.IPAddressToString }) -contains $IpAddress
+              } |
+              Select-Object -First 1
+
+          if ($null -eq $authorized) {
+              Add-DhcpServerInDC -DnsName $DnsName -IPAddress $IpAddress
+              $changed = $true
+          }
+
+          $Ansible.Changed = $changed
+        parameters:
+          DnsName: "{{ dc_fqdn }}"
+          IpAddress: "{{ dc_ip }}"
+      vars:
+        ansible_become: yes
+        ansible_become_method: runas
+        ansible_become_user: "{{ domain_username }}"
+        ansible_become_password: "{{ domain_password }}"
+
+    - name: Ensure DHCP scope exists
+      ansible.windows.win_powershell:
+        script: |
+          [CmdletBinding()]
+          param (
+              [String] $StartRange,
+              [String] $EndRange,
+              [String] $SubnetMask,
+              [String] $LeaseDuration
+          )
+
+          $ErrorActionPreference = "Stop"
+          $changed = $false
+          $scopes = @(Get-DhcpServerv4Scope -ErrorAction SilentlyContinue)
+
+          if ($scopes.Count -eq 0) {
+              Add-DhcpServerV4Scope `
+                  -Name "Impacket QA DHCP Scope" `
+                  -StartRange $StartRange `
+                  -EndRange $EndRange `
+                  -SubnetMask $SubnetMask `
+                  -LeaseDuration $LeaseDuration
+              $changed = $true
+          }
+
+          $Ansible.Changed = $changed
+        parameters:
+          StartRange: "{{ ip_from }}"
+          EndRange: "{{ ip_to }}"
+          SubnetMask: "{{ ip_mask }}"
+          LeaseDuration: "{{ lease_duration }}"
+
+    - name: Read default gateway
+      ansible.windows.win_shell: |
+        (Get-NetRoute -DestinationPrefix "0.0.0.0/0" |
+            Sort-Object RouteMetric |
+            Select-Object -First 1).NextHop
+      register: impacket_qa_default_gateway
+      changed_when: false
+
+    - name: Configure DHCP DNS and router options
+      ansible.windows.win_powershell:
+        script: |
+          [CmdletBinding()]
+          param (
+              [String] $DnsServer,
+              [String] $Router
+          )
+
+          $ErrorActionPreference = "Stop"
+          $changed = $false
+          $options = @(Get-DhcpServerV4OptionValue -ErrorAction SilentlyContinue)
+          $dnsOption = $options | Where-Object { $_.OptionId -eq 6 } | Select-Object -First 1
+          $routerOption = $options | Where-Object { $_.OptionId -eq 3 } | Select-Object -First 1
+          $currentDns = @($dnsOption.Value | ForEach-Object { $_.ToString() })
+          $currentRouter = @($routerOption.Value | ForEach-Object { $_.ToString() })
+
+          if ($currentDns.Count -ne 1 -or $currentDns[0] -ne $DnsServer -or
+              $currentRouter.Count -ne 1 -or $currentRouter[0] -ne $Router) {
+              Set-DhcpServerV4OptionValue -DnsServer $DnsServer -Router $Router
+              $changed = $true
+          }
+
+          $Ansible.Changed = $changed
+        parameters:
+          DnsServer: "{{ dns_ip }}"
+          Router: "{{ impacket_qa_default_gateway.stdout | trim }}"
+
+    - name: Ensure DHCP Server service is running
+      ansible.windows.win_service:
+        name: dhcpserver
+        start_mode: auto
+        state: started
+
+- name: Configure Windows services for Impacket QA
+  hosts: impacket_qa_windows_targets
+  tasks:
+    - name: Disable Windows firewall profiles on QA targets
+      community.windows.win_firewall:
+        state: disabled
+        profiles:
+          - Domain
+          - Private
+          - Public
+
+    - name: Ensure RemoteRegistry is running
+      ansible.windows.win_service:
+        name: RemoteRegistry
+        start_mode: auto
+        state: started
+
+    - name: Ensure Print Spooler is running
+      ansible.windows.win_service:
+        name: Spooler
+        start_mode: auto
+        state: started
+
+    - name: Ensure Windows Management Instrumentation is running
+      ansible.windows.win_service:
+        name: Winmgmt
+        start_mode: auto
+        state: started
+
+- name: Prepare optional Mimilib target
+  hosts: impacket_qa_mimilib
+  vars:
+    impacket_qa_mimilib_enabled: false
+    impacket_qa_mimikatz_path: "C:\\impacket-qa\\mimikatz.exe"
+  tasks:
+    - name: Create Impacket QA directory
+      ansible.windows.win_file:
+        path: "C:\\impacket-qa"
+        state: directory
+
+    - name: Register optional Mimilib scheduled task
+      community.windows.win_scheduled_task:
+        name: "Impacket QA Mimilib"
+        description: "Starts Mimikatz RPC server for Impacket test_mimilib.py"
+        actions:
+          - path: "{{ impacket_qa_mimikatz_path }}"
+            arguments: "rpc::server"
+        triggers:
+          - type: boot
+        username: "SYSTEM"
+        run_level: highest
+        state: present
+        enabled: yes
+      when: impacket_qa_mimilib_enabled | bool
