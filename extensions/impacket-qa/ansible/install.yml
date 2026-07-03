@@ -41,6 +41,15 @@
               ConvertTo-SecureString -String $PlainText -AsPlainText -Force
           }
 
+          function Escape-LdapFilterValue([string] $Value) {
+              $escaped = $Value.Replace('\', '\5c')
+              $escaped = $escaped.Replace('*', '\2a')
+              $escaped = $escaped.Replace('(', '\28')
+              $escaped = $escaped.Replace(')', '\29')
+              $escaped = $escaped.Replace([string][char]0, '\00')
+              return $escaped
+          }
+
           function Ensure-Group([string] $Name) {
               $group = Get-ADGroup -Filter "Name -eq '$Name'" -ErrorAction SilentlyContinue
               if ($null -eq $group) {
@@ -59,7 +68,9 @@
           }
 
           function Ensure-User([string] $Sam, [string] $Name, [string] $Password, [string[]] $Groups) {
-              $user = Get-ADUser -Identity $Sam -ErrorAction SilentlyContinue
+              $escapedSam = Escape-LdapFilterValue $Sam
+              $user = Get-ADUser -LDAPFilter "(sAMAccountName=$escapedSam)" -ErrorAction Stop |
+                  Select-Object -First 1
               if ($null -eq $user) {
                   New-ADUser `
                       -Name $Name `
@@ -99,7 +110,9 @@
           Ensure-User $unicodeSam $unicodeSam $UnicodePassword @("Grupo de prueba")
 
           $machineSam = $MachineName + '$'
-          $machine = Get-ADComputer -LDAPFilter "(sAMAccountName=$machineSam)" -ErrorAction SilentlyContinue
+          $escapedMachineSam = Escape-LdapFilterValue $machineSam
+          $machine = Get-ADComputer -LDAPFilter "(sAMAccountName=$escapedMachineSam)" -ErrorAction Stop |
+              Select-Object -First 1
           if ($null -eq $machine) {
               New-ADComputer `
                   -Name $MachineName `
