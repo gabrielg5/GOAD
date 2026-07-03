@@ -193,7 +193,8 @@ class VsphereProvider(Provider):
         return False
 
     def _vm_exists(self, vm_name):
-        command = [self.govc_bin, 'vm.info', self._vm_ref(vm_name)]
+        vm_ref = self._vm_ref(vm_name)
+        command = [self.govc_bin, 'ls', '-json', vm_ref]
         self._log_command(command)
         result = subprocess.run(
             command,
@@ -202,7 +203,22 @@ class VsphereProvider(Provider):
             capture_output=True,
             text=True
         )
-        return result.returncode == 0
+        if result.returncode != 0:
+            return False
+
+        try:
+            data = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            expected = vm_ref.rstrip('/')
+            return any(line.strip().rstrip('/') == expected for line in result.stdout.splitlines())
+
+        expected = vm_ref.rstrip('/')
+        for element in data.get('Elements', []):
+            path = str(element.get('Path', '')).rstrip('/')
+            object_type = element.get('Object', {}).get('Type', '')
+            if path == expected and object_type == 'VirtualMachine':
+                return True
+        return False
 
     def _run_govc_guest_retry(self, args, timeout=None, delay=None):
         timeout = self.guest_operations_timeout if timeout is None else timeout
