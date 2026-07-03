@@ -1,0 +1,48 @@
+---
+- name: Prepare Impacket legacy Windows targets
+  hosts: impacket_legacy_windows
+  gather_facts: no
+  tasks:
+    - name: Disable Windows firewall profiles
+      win_shell: |
+        netsh advfirewall set allprofiles state off
+
+    - name: Enable common RPC and NetBIOS services
+      win_shell: |
+        $services = @('RemoteRegistry', 'Spooler', 'lmhosts')
+        foreach ($service in $services) {
+          sc.exe config $service start= auto | Out-Null
+          sc.exe start $service | Out-Null
+        }
+        exit 0
+
+    - name: Enable NetBIOS over TCP/IP on all interfaces
+      win_shell: |
+        $interfaces = Get-ChildItem 'HKLM:\SYSTEM\CurrentControlSet\Services\NetBT\Parameters\Interfaces' -ErrorAction SilentlyContinue
+        foreach ($interface in $interfaces) {
+          New-ItemProperty -Path $interface.PSPath -Name NetbiosOptions -Value 1 -PropertyType DWord -Force | Out-Null
+        }
+
+    - name: Lower print spooler RPC privacy requirement for regression compatibility
+      win_shell: |
+        reg add HKLM\SYSTEM\CurrentControlSet\Control\Print /v RpcAuthnLevelPrivacyEnabled /t REG_DWORD /d 0 /f
+        sc.exe stop Spooler | Out-Null
+        sc.exe start Spooler | Out-Null
+        exit 0
+
+- name: Prepare SMB1 and unsigned SMB legacy targets
+  hosts: impacket_legacy_smb1
+  gather_facts: no
+  tasks:
+    - name: Enable SMB1 if the feature exists
+      win_shell: |
+        dism.exe /online /enable-feature /featurename:SMB1Protocol /NoRestart
+        exit 0
+
+    - name: Disable SMB signing requirements on legacy targets
+      win_shell: |
+        reg add HKLM\SYSTEM\CurrentControlSet\Services\LanManServer\Parameters /v RequireSecuritySignature /t REG_DWORD /d 0 /f
+        reg add HKLM\SYSTEM\CurrentControlSet\Services\LanManServer\Parameters /v EnableSecuritySignature /t REG_DWORD /d 0 /f
+        reg add HKLM\SYSTEM\CurrentControlSet\Services\LanmanWorkstation\Parameters /v RequireSecuritySignature /t REG_DWORD /d 0 /f
+        reg add HKLM\SYSTEM\CurrentControlSet\Services\LanmanWorkstation\Parameters /v EnableSecuritySignature /t REG_DWORD /d 0 /f
+        exit 0

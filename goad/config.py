@@ -99,6 +99,9 @@ class Config:
         config.set('vsphere', 'vsphere_bootstrap_guest_network', 'true')
         config.set('vsphere', 'vsphere_guest_username', 'vagrant')
         config.set('vsphere', 'vsphere_guest_password', 'vagrant')
+        config.set('vsphere', '; optional paths to files containing guest bootstrap credentials')
+        config.set('vsphere', 'vsphere_guest_username_path', '')
+        config.set('vsphere', 'vsphere_guest_password_path', '')
         config.set('vsphere', 'vsphere_ipv4_gateway', '')
         config.set('vsphere', 'vsphere_ipv4_prefix_length', '')
         config.set('vsphere', 'vsphere_dns_server', '')
@@ -111,6 +114,19 @@ class Config:
         config.set('vsphere', 'vsphere_ovftool_bin', 'ovftool')
         config.set('vsphere', 'vsphere_govc_bin', 'govc')
         config.set('vsphere', 'vsphere_network_adapter', 'e1000')
+
+        config.add_section('impacket_legacy_vsphere')
+        config.set('impacket_legacy_vsphere', '; vCenter template inventory paths for optional Impacket legacy targets')
+        config.set('impacket_legacy_vsphere', 'dc2012r2_template', '')
+        config.set('impacket_legacy_vsphere', 'win2008r2_template', '')
+        config.set('impacket_legacy_vsphere', 'win7_template', '')
+        config.set('impacket_legacy_vsphere', '; optional per-template guest credential files; fall back to [vsphere] paths or values')
+        config.set('impacket_legacy_vsphere', 'dc2012r2_guest_username_path', '')
+        config.set('impacket_legacy_vsphere', 'dc2012r2_guest_password_path', '')
+        config.set('impacket_legacy_vsphere', 'win2008r2_guest_username_path', '')
+        config.set('impacket_legacy_vsphere', 'win2008r2_guest_password_path', '')
+        config.set('impacket_legacy_vsphere', 'win7_guest_username_path', '')
+        config.set('impacket_legacy_vsphere', 'win7_guest_password_path', '')
         config.write(cfgfile)
         cfgfile.close()
 
@@ -160,6 +176,8 @@ class Config:
         return self
 
     def get_value(self, section, key, fallback=None):
+        if not self.config.has_section(section):
+            return fallback
         return self.config.get(section, key, fallback=fallback)
 
     def set_value(self, section, key, value):

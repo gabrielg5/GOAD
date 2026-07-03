@@ -129,7 +129,8 @@ class LabInstance:
         lab_vagrantfile_template = lab_environment.get_template("Vagrantfile")
         lab_vagrantfile_content = self._render_template(
             lab_vagrantfile_template,
-            lab_name=self.lab_name
+            lab_name=self.lab_name,
+            config=self.config
         )
 
         # load lab extensions
@@ -141,7 +142,8 @@ class LabInstance:
                 lab_extension_vagrantfile_template = extension_environment.get_template("Vagrantfile")
                 lab_extensions_content += self._render_template(
                     lab_extension_vagrantfile_template,
-                    lab_name=self.lab_name
+                    lab_name=self.lab_name,
+                    config=self.config
                 ) + "\n"
 
         # load extensions Vagrantfile into instance
@@ -154,7 +156,8 @@ class LabInstance:
             lab=lab_vagrantfile_content,
             extensions=lab_extensions_content,
             provider_name=self.provider_name,
-            use_provisioning_vm=use_provisioning_vm
+            use_provisioning_vm=use_provisioning_vm,
+            config=self.config
         )
 
         # create vagrantfile
@@ -196,7 +199,7 @@ class LabInstance:
         boxes = []
         for match in re.finditer(r'\{(?P<body>.*?)\}', content, re.DOTALL):
             body = match.group('body')
-            if ':name' not in body or ':box' not in body:
+            if ':name' not in body or (':box' not in body and ':template' not in body):
                 continue
 
             box = {}
@@ -206,7 +209,7 @@ class LabInstance:
                     value = int(value)
                 box[key] = value
 
-            if 'name' in box and 'box' in box:
+            if 'name' in box and ('box' in box or 'template' in box):
                 boxes.append(box)
         return boxes
 
@@ -217,7 +220,8 @@ class LabInstance:
         rendered_vagrantfiles = [
             self._render_template(
                 lab_vagrantfile_template,
-                lab_name=self.lab_name
+                lab_name=self.lab_name,
+                config=self.config
             )
         ]
 
@@ -229,7 +233,8 @@ class LabInstance:
                 rendered_vagrantfiles.append(
                     self._render_template(
                         extension_vagrantfile_template,
-                        lab_name=self.lab_name
+                        lab_name=self.lab_name,
+                        config=self.config
                     )
                 )
 
@@ -422,7 +427,8 @@ class LabInstance:
             instance_extension_inventory_content = self._render_template(
                 instance_extension_inventory_template,
                 lab_name=self.lab_name,
-                provider_name=self.provider_name
+                provider_name=self.provider_name,
+                config=self.config
             )
 
             # create instance extension inventory file

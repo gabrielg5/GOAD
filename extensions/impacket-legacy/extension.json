@@ -1,0 +1,13 @@
+{
+    "name": "impacket-legacy",
+    "description": "Add optional legacy Windows targets for Impacket regression compatibility testing",
+    "machines": [
+        "dc2012r2 (legacy Windows Server 2012 R2 target)",
+        "win2008r2 (legacy Windows Server 2008 R2 target)",
+        "win7 (legacy Windows 7 SMB/NetBIOS target)"
+    ],
+    "compatibility": [
+        "GOAD"
+    ],
+    "impact": "vSphere-only first pass. Creates legacy VMs from configurable vCenter templates and applies baseline compatibility settings."
+}

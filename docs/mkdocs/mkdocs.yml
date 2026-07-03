@@ -32,6 +32,7 @@ nav:
     - guacamole: extensions/guacamole.md
     - exchange: extensions/exchange.md
     - impacket-qa: extensions/impacket-qa.md
+    - impacket-legacy: extensions/impacket-legacy.md
     - lx01: extensions/lx01.md
     - ws01: extensions/ws01.md
     - elk: extensions/elk.md

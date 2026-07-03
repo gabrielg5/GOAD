@@ -43,9 +43,15 @@ class VsphereProvider(Provider):
         self.bootstrap_guest_network = config.get_value('vsphere', 'vsphere_bootstrap_guest_network', 'true').lower() == 'true'
         self.guest_username = config.get_value('vsphere', 'vsphere_guest_username', 'vagrant')
         self.guest_password = config.get_value('vsphere', 'vsphere_guest_password', 'vagrant')
+        self.guest_username_path = config.get_value('vsphere', 'vsphere_guest_username_path', '')
+        self.guest_password_path = config.get_value('vsphere', 'vsphere_guest_password_path', '')
         self.ipv4_prefix_length = config.get_value('vsphere', 'vsphere_ipv4_prefix_length', '')
         self.ipv4_gateway = config.get_value('vsphere', 'vsphere_ipv4_gateway', '')
         self.dns_server = config.get_value('vsphere', 'vsphere_dns_server', '')
+        self._secret_values = set()
+        self._credential_file_cache = {}
+        self._add_secret(self.password)
+        self._add_secret(self.guest_password)
         self.guest_operations_timeout = self._int_value(
             config.get_value('vsphere', 'vsphere_guest_operations_timeout', '1800'),
             1800
@@ -79,6 +85,13 @@ class VsphereProvider(Provider):
         except (TypeError, ValueError):
             return default
 
+    def _add_secret(self, value):
+        if value is None:
+            return
+        value = str(value)
+        if value:
+            self._secret_values.add(value)
+
     def _password_needs_prompt(self):
         if self.password is None:
             return True
@@ -91,9 +104,11 @@ class VsphereProvider(Provider):
         env_password = os.environ.get('VSPHERE_PASSWORD') or os.environ.get('GOVC_PASSWORD')
         if env_password:
             self.password = env_password
+            self._add_secret(self.password)
             return self.password
 
         self.password = getpass.getpass(f'Enter vSphere password for {self.username}@{self.server}: ')
+        self._add_secret(self.password)
         return self.password
 
     @staticmethod
@@ -112,14 +127,11 @@ class VsphereProvider(Provider):
     def _sanitize_command(self, command):
         sanitized = []
         for arg in command:
-            if self.password:
-                arg = arg.replace(self.password, '***')
-                arg = arg.replace(self._url_quote(self.password), '***')
+            for secret in self._secret_values:
+                arg = arg.replace(secret, '***')
+                arg = arg.replace(self._url_quote(secret), '***')
             if self.username:
                 arg = arg.replace(self._url_quote(self.username), '***')
-            if self.guest_password and arg != self.command.vagrant_bin:
-                arg = arg.replace(self.guest_password, '***')
-                arg = arg.replace(self._url_quote(self.guest_password), '***')
             arg = self._sanitize_vi_locator(arg)
             sanitized.append(arg)
         return sanitized
@@ -176,6 +188,18 @@ class VsphereProvider(Provider):
                 Log.info(f'govc command failed, retry in {delay}s ({attempt}/{tries})')
                 time.sleep(delay)
         return False
+
+    def _vm_exists(self, vm_name):
+        command = [self.govc_bin, 'vm.info', vm_name]
+        self._log_command(command)
+        result = subprocess.run(
+            command,
+            cwd=self.path,
+            env=self._govc_env(),
+            capture_output=True,
+            text=True
+        )
+        return result.returncode == 0
 
     def _run_govc_guest_retry(self, args, timeout=None, delay=None):
         timeout = self.guest_operations_timeout if timeout is None else timeout
@@ -287,8 +311,61 @@ class VsphereProvider(Provider):
             return self.dns_server
         return self._gateway_for_box(box)
 
-    def _guest_login(self):
-        return f'{self.guest_username}:{self.guest_password}'
+    @staticmethod
+    def _first_configured_value(*values):
+        for value in values:
+            if value is None:
+                continue
+            value = str(value).strip()
+            if value:
+                return value
+        return ''
+
+    def _read_guest_credential_file(self, path, label):
+        resolved_path = os.path.expandvars(os.path.expanduser(path))
+        if resolved_path in self._credential_file_cache:
+            return self._credential_file_cache[resolved_path]
+        if not os.path.isfile(resolved_path):
+            Log.error(f'{label} file not found: {resolved_path}')
+            self._credential_file_cache[resolved_path] = None
+            return None
+        try:
+            with open(resolved_path, 'r', encoding='utf-8') as credential_file:
+                value = credential_file.read().strip()
+                self._credential_file_cache[resolved_path] = value
+                return value
+        except OSError as exc:
+            Log.error(f'Unable to read {label} file {resolved_path}: {exc}')
+            self._credential_file_cache[resolved_path] = None
+            return None
+
+    def _guest_value(self, box, key, default_value, default_path):
+        if box is None:
+            box = {}
+        path = self._first_configured_value(
+            box.get(f'{key}_path'),
+            box.get(f'{key}_file'),
+            default_path
+        )
+        if path:
+            value = self._read_guest_credential_file(path, key)
+            if value is None:
+                return None
+        else:
+            value = self._first_configured_value(box.get(key), default_value)
+
+        if key == 'guest_password':
+            self._add_secret(value)
+        return value
+
+    def _guest_login(self, box=None):
+        username = self._guest_value(box, 'guest_username', self.guest_username, self.guest_username_path)
+        password = self._guest_value(box, 'guest_password', self.guest_password, self.guest_password_path)
+        if not username or not password:
+            vm_name = box.get('name') if box else 'guest'
+            Log.error(f'Missing guest bootstrap credentials for {vm_name}')
+            return None
+        return f'{username}:{password}'
 
     @staticmethod
     def _netmask_from_prefix(prefix_length):
@@ -351,24 +428,30 @@ if (-not $assigned) {
             .replace('__GATEWAY__', gateway) \
             .replace('__DNS_SERVER__', dns_server)
 
-    def _start_guest_program(self, vm_name, program, args=None, tries=None, delay=None):
+    def _start_guest_program(self, vm_name, program, args=None, tries=None, delay=None, box=None):
         if args is None:
             args = []
+        guest_login = self._guest_login(box)
+        if guest_login is None:
+            return False
         command = [
             'guest.start',
             '-vm', vm_name,
-            '-l', self._guest_login(),
+            '-l', guest_login,
             program,
         ] + args
         if tries is not None:
             return self._run_govc_retry(command, tries=tries, delay=delay or 10)
         return self._run_govc_guest_retry(command, delay=delay)
 
-    def _upload_file_to_guest(self, vm_name, local_path, remote_path, tries=None, delay=None):
+    def _upload_file_to_guest(self, vm_name, local_path, remote_path, tries=None, delay=None, box=None):
+        guest_login = self._guest_login(box)
+        if guest_login is None:
+            return False
         command = [
             'guest.upload',
             '-vm', vm_name,
-            '-l', self._guest_login(),
+            '-l', guest_login,
             local_path,
             remote_path
         ]
@@ -376,23 +459,29 @@ if (-not $assigned) {
             return self._run_govc_retry(command, tries=tries, delay=delay or 10)
         return self._run_govc_guest_retry(command, delay=delay)
 
-    def _wait_for_guest_operations(self, vm_name, probe_path):
+    def _wait_for_guest_operations(self, vm_name, probe_path, box=None):
+        guest_login = self._guest_login(box)
+        if guest_login is None:
+            return False
         Log.info(f'Wait for VMware Tools guest operations on {vm_name}')
         return self._run_govc_guest_retry([
             'guest.ls',
             '-vm', vm_name,
-            '-l', self._guest_login(),
+            '-l', guest_login,
             probe_path
         ])
 
-    def _download_guest_file_silent(self, vm_name, remote_path, local_path):
+    def _download_guest_file_silent(self, vm_name, remote_path, local_path, box=None):
+        guest_login = self._guest_login(box)
+        if guest_login is None:
+            return False
         result = subprocess.run(
             [
                 self.govc_bin,
                 'guest.download',
                 '-f',
                 '-vm', vm_name,
-                '-l', self._guest_login(),
+                '-l', guest_login,
                 remote_path,
                 local_path
             ],
@@ -407,14 +496,14 @@ if (-not $assigned) {
     def _powershell_quote(value):
         return "'" + str(value).replace("'", "''") + "'"
 
-    def _upload_and_start_windows_script(self, vm_name, script_content, remote_script):
+    def _upload_and_start_windows_script(self, vm_name, script_content, remote_script, box=None):
         local_script = None
         try:
             with tempfile.NamedTemporaryFile('w', suffix='.ps1', delete=False, encoding='utf-8') as script_file:
                 script_file.write(script_content)
                 local_script = script_file.name
 
-            if not self._upload_file_to_guest(vm_name, local_script, remote_script):
+            if not self._upload_file_to_guest(vm_name, local_script, remote_script, box=box):
                 return False
 
             return self._start_guest_program(
@@ -424,13 +513,14 @@ if (-not $assigned) {
                     '-NoProfile',
                     '-ExecutionPolicy', 'Bypass',
                     '-File', remote_script
-                ]
+                ],
+                box=box
             )
         finally:
             if local_script and os.path.isfile(local_script):
                 os.unlink(local_script)
 
-    def _upload_start_and_wait_windows_script(self, vm_name, script_content, remote_script, task_name, timeout=900):
+    def _upload_start_and_wait_windows_script(self, vm_name, script_content, remote_script, task_name, timeout=900, box=None):
         run_id = uuid.uuid4().hex
         remote_wrapper_script = f'C:\\Windows\\Temp\\GOAD-{task_name}-{run_id}.ps1'
         success_marker = f'C:\\Windows\\Temp\\GOAD-{task_name}-{run_id}.done'
@@ -467,9 +557,9 @@ try {{
                 wrapper_file.write(wrapper_content)
                 local_wrapper_script = wrapper_file.name
 
-            if not self._upload_file_to_guest(vm_name, local_script, remote_script):
+            if not self._upload_file_to_guest(vm_name, local_script, remote_script, box=box):
                 return False
-            if not self._upload_file_to_guest(vm_name, local_wrapper_script, remote_wrapper_script):
+            if not self._upload_file_to_guest(vm_name, local_wrapper_script, remote_wrapper_script, box=box):
                 return False
             if not self._start_guest_program(
                 vm_name,
@@ -478,10 +568,11 @@ try {{
                     '-NoProfile',
                     '-ExecutionPolicy', 'Bypass',
                     '-File', remote_wrapper_script
-                ]
+                ],
+                box=box
             ):
                 return False
-            return self._wait_for_guest_marker(vm_name, success_marker, error_marker, timeout=timeout)
+            return self._wait_for_guest_marker(vm_name, success_marker, error_marker, timeout=timeout, box=box)
         finally:
             for script_file in (local_script, local_wrapper_script):
                 if script_file and os.path.isfile(script_file):
@@ -519,7 +610,7 @@ try {{
         Log.error(f'{vm_name} did not report expected IP {expected_ip}; last reported: {reported}')
         return False
 
-    def _wait_for_guest_marker(self, vm_name, success_marker, error_marker, timeout=900, delay=10):
+    def _wait_for_guest_marker(self, vm_name, success_marker, error_marker, timeout=900, delay=10, box=None):
         Log.info(f'Wait for guest-side bootstrap on {vm_name}')
         deadline = time.time() + timeout
         success_file = None
@@ -533,10 +624,10 @@ try {{
 
             while time.time() < deadline:
                 attempt += 1
-                if self._download_guest_file_silent(vm_name, success_marker, success_file):
+                if self._download_guest_file_silent(vm_name, success_marker, success_file, box=box):
                     Log.success(f'Guest-side bootstrap completed on {vm_name}')
                     return True
-                if self._download_guest_file_silent(vm_name, error_marker, error_file):
+                if self._download_guest_file_silent(vm_name, error_marker, error_file, box=box):
                     with open(error_file, 'r', encoding='utf-8', errors='replace') as error_openfile:
                         error_text = error_openfile.read().strip()
                     Log.error(f'Guest-side bootstrap failed on {vm_name}: {error_text}')
@@ -569,10 +660,11 @@ try {{
         return self._start_guest_program(
             vm_name,
             'C:\\Windows\\System32\\cmd.exe',
-            ['/c', command]
+            ['/c', command],
+            box=box
         )
 
-    def _start_windows_remoting(self, vm_name):
+    def _start_windows_remoting(self, vm_name, box=None):
         configure_script = Path(project_path) / 'vagrant' / 'ConfigureRemotingForAnsible.ps1'
         remote_configure_script = 'C:\\Windows\\Temp\\ConfigureRemotingForAnsible.ps1'
         run_id = uuid.uuid4().hex
@@ -630,9 +722,9 @@ try {{
                 script_file.write(wrapper_content)
                 local_wrapper_script = script_file.name
 
-            if not self._upload_file_to_guest(vm_name, str(configure_script), remote_configure_script):
+            if not self._upload_file_to_guest(vm_name, str(configure_script), remote_configure_script, box=box):
                 return False
-            if not self._upload_file_to_guest(vm_name, local_wrapper_script, remote_wrapper_script):
+            if not self._upload_file_to_guest(vm_name, local_wrapper_script, remote_wrapper_script, box=box):
                 return False
 
             if not self._start_guest_program(
@@ -642,11 +734,12 @@ try {{
                     '-NoProfile',
                     '-ExecutionPolicy', 'Bypass',
                     '-File', remote_wrapper_script
-                ]
+                ],
+                box=box
             ):
                 return False
 
-            return self._wait_for_guest_marker(vm_name, success_marker, error_marker)
+            return self._wait_for_guest_marker(vm_name, success_marker, error_marker, box=box)
         finally:
             if local_wrapper_script and os.path.isfile(local_wrapper_script):
                 os.unlink(local_wrapper_script)
@@ -658,7 +751,7 @@ try {{
 
         if self._start_windows_netsh_fallback(vm_name, box):
             if self._wait_for_guest_ip(vm_name, box['ip']):
-                if not self._start_windows_remoting(vm_name):
+                if not self._start_windows_remoting(vm_name, box=box):
                     return False
                 return True
             Log.warning(f'{vm_name} kept an APIPA or unexpected IP after netsh bootstrap')
@@ -676,14 +769,15 @@ try {{
             network_script,
             'C:\\Windows\\Temp\\GOAD-BootstrapNetwork.ps1',
             'BootstrapNetwork',
-            timeout=self.network_bootstrap_timeout
+            timeout=self.network_bootstrap_timeout,
+            box=box
         ):
             return False
 
         if not self._wait_for_guest_ip(vm_name, box['ip']):
             return False
 
-        if not self._start_windows_remoting(vm_name):
+        if not self._start_windows_remoting(vm_name, box=box):
             return False
         return True
 
@@ -700,7 +794,7 @@ try {{
             f"sudo ip route replace default via {gateway}; "
             f"echo nameserver {dns_server} | sudo tee /etc/resolv.conf >/dev/null"
         )
-        if not self._start_guest_program(vm_name, '/bin/bash', ['-lc', script], tries=30, delay=10):
+        if not self._start_guest_program(vm_name, '/bin/bash', ['-lc', script], tries=30, delay=10, box=box):
             return False
 
         return self._wait_for_guest_ip(vm_name, box['ip'])
@@ -711,10 +805,10 @@ try {{
         os_name = box.get('os', '').lower()
         Log.info(f'Bootstrap guest network for {vm_name} ({box["ip"]}/{self._prefix_length()})')
         if os_name == 'windows':
-            if not self._wait_for_guest_operations(vm_name, 'C:\\Windows\\Temp'):
+            if not self._wait_for_guest_operations(vm_name, 'C:\\Windows\\Temp', box=box):
                 return False
             return self._bootstrap_windows_guest(vm_name, box)
-        if not self._wait_for_guest_operations(vm_name, '/tmp'):
+        if not self._wait_for_guest_operations(vm_name, '/tmp', box=box):
             return False
         return self._bootstrap_linux_guest(vm_name, box)
 
@@ -814,6 +908,11 @@ try {{
         return None
 
     def _deploy_box(self, box):
+        vm_name = self._vm_name(box)
+        if self._vm_exists(vm_name) and not self.overwrite:
+            Log.info(f'Skip existing VM {vm_name}; set vsphere_overwrite=true to replace it')
+            return True
+
         provider_dir = self._ensure_box(box)
         if provider_dir is None:
             Log.error(f'Unable to find or download vagrant box {box["box"]}')
@@ -824,7 +923,6 @@ try {{
             Log.error(f'No OVF/OVA/VMX source found in {provider_dir}')
             return False
 
-        vm_name = self._vm_name(box)
         command = [
             self.ovftool_bin,
             '--acceptAllEulas',
@@ -863,6 +961,64 @@ try {{
             return False
         return self._bootstrap_guest(vm_name, box)
 
+    def _deploy_template(self, box):
+        template = str(box.get('template', '')).strip()
+        if not template:
+            Log.error(f'Missing vSphere template path for {box["name"]}')
+            return False
+
+        vm_name = self._vm_name(box)
+        if self._vm_exists(vm_name) and not self.overwrite:
+            Log.info(f'Skip existing VM {vm_name}; set vsphere_overwrite=true to replace it')
+            return True
+
+        if self.overwrite:
+            self._run_govc(['vm.power', '-off', vm_name])
+            self._run_govc(['vm.destroy', vm_name])
+
+        command = ['vm.clone', f'-vm={template}', '-on=false']
+        if self.datastore:
+            command.append(f'-ds={self.datastore}')
+        if self.vm_folder:
+            command.append(f'-folder={self.vm_folder}')
+        if self.resource_pool:
+            command.append(f'-pool={self.resource_pool}')
+        if self.network:
+            command.append(f'-net={self.network}')
+        if self.network_adapter:
+            command.append(f'-net.adapter={self.network_adapter}')
+        if box.get('cpus'):
+            command.append(f'-c={box["cpus"]}')
+        if box.get('mem'):
+            command.append(f'-m={box["mem"]}')
+        if box.get('annotation'):
+            command.append(f'-annotation={box["annotation"]}')
+        command.append(vm_name)
+
+        if not self._run_govc(command):
+            return False
+
+        if not self._connect_network_devices(vm_name):
+            return False
+
+        if not self._run_govc(['vm.power', '-on', vm_name]):
+            return False
+        if not self._connect_network_devices(vm_name):
+            return False
+        return self._bootstrap_guest(vm_name, box)
+
+    @staticmethod
+    def _box_source_label(box):
+        return box.get('template') or box.get('box') or '<missing source>'
+
+    def _deploy_vm(self, box):
+        if box.get('template') is not None:
+            return self._deploy_template(box)
+        if box.get('box') is not None:
+            return self._deploy_box(box)
+        Log.error(f'Missing VM source for {box.get("name", "<unnamed>")}')
+        return False
+
     def install(self):
         boxes = self._get_boxes()
         if not boxes:
@@ -874,8 +1030,8 @@ try {{
                 'is a direct ESXi host. For vCenter, set the datacenter/host/cluster path.'
             )
         for box in boxes:
-            Log.info(f'Deploy {box["name"]} from {box["box"]}')
-            if not self._deploy_box(box):
+            Log.info(f'Deploy {box["name"]} from {self._box_source_label(box)}')
+            if not self._deploy_vm(box):
                 return False
         return True
 

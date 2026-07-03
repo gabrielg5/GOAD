@@ -65,7 +65,7 @@ This is only needed for old protocol behavior and parity with the previous QA la
 
 | VM | OS | Domain | IP offset | Required configuration |
 | --- | --- | --- | --- | --- |
-| `dc2012` | Windows Server 2012 R2 DC | `legacy.local` or separate GOAD-compatible test domain | `{{ip_range}}.40` | Mirrors Impacket's historical documented DC baseline. AD DS, DNS, DHCP, LDAPS, RemoteRegistry, ADCS web enrollment, Mimilib. |
+| `dc2012r2` | Windows Server 2012 R2 DC | `legacy.local` or separate GOAD-compatible test domain | `{{ip_range}}.40` | Mirrors Impacket's historical documented DC baseline. AD DS, DNS, DHCP, LDAPS, RemoteRegistry, ADCS web enrollment, Mimilib. |
 | `win2008r2` | Windows Server 2008 R2 member | legacy domain | `{{ip_range}}.41` | SMB1 enabled, SMB signing disabled, admin shares available. |
 | `win7` | Windows 7 SP1 member | legacy domain | `{{ip_range}}.42` | Preferred target for SMB1, SMB2.0, SMB2.1, NetBIOS session port, Unicode SMB tests. SMB signing disabled. |
 | `win10` | Windows 10 21H2/22H2 member | legacy or GOAD domain | `{{ip_range}}.43` | Modern SMB3 and workstation behavior. |
@@ -305,7 +305,7 @@ repository.
 
 ## Implementation Shape in GOAD
 
-Add one GOAD extension for the automated core and keep legacy coverage as a separate future extension:
+Add one GOAD extension for the automated core and keep legacy coverage in a separate extension:
 
 1. `extensions/impacket-qa`
    - No new VMs.
@@ -318,9 +318,12 @@ Add one GOAD extension for the automated core and keep legacy coverage as a sepa
    - Templates `dcetests-*.cfg` files with fixed-password hashes/keys and a provider IP-range placeholder.
 
 2. `extensions/impacket-legacy`
-   - Adds `dc2012`, `win2008r2`, `win7`, `win10`, and optional `winxp`.
+   - vSphere-only first pass.
+   - Adds `dc2012r2`, `win2008r2`, and `win7` from configurable vCenter template paths.
+   - Uses per-template guest username/password file paths, with shared `[vsphere]` paths as fallback.
+   - Renders offsets through the selected GOAD CIDR, so `.40`, `.41`, and `.42` do not assume a `/24`.
    - Enables SMB1 and SMB signing-off policies only on legacy targets.
-   - Creates SMB dialect-specific config profiles.
+   - Domain promotion/join policy is the next decision point after the actual template baseline is known.
 
 Use existing extensions for:
 

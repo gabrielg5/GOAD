@@ -2,11 +2,15 @@
 
 The `vsphere` provider creates the lab VMs from the same Vagrant box definitions used by the VMware providers, but it does not run `vagrant up` and does not use the `vagrant-vmware-esxi` plugin.
 
+Extensions can also define vCenter template sources. In that mode the provider
+clones the VM with `govc vm.clone` instead of importing a Vagrant box.
+
 The provider uses:
 
 - `vagrant box add` to download/cache the VMware Vagrant boxes locally
 - `ovftool` to import the VMX/OVF/OVA to vSphere over TCP/443
 - `govc` to power, inspect, resize, and destroy VMs over TCP/443
+- `govc vm.clone` to clone vCenter templates when an extension defines a `:template` source
 - the existing GOAD Ansible inventories for lab provisioning
 
 Ansible provisioning is unchanged. The host running GOAD still needs network access to the created guest IPs on WinRM/SSH.
@@ -17,7 +21,7 @@ Ansible provisioning is unchanged. The host running GOAD still needs network acc
 - [OVF Tool](https://developer.broadcom.com/tools/open-virtualization-format-ovf-tool/latest)
 - [govc](https://github.com/vmware/govmomi/releases)
 - vCenter or ESXi reachable on TCP/443
-- VMware Tools installed and running in each Vagrant box
+- VMware Tools installed and running in each Vagrant box or vCenter template
 - Vagrant boxes with VMware provider artifacts, usually `vmware_desktop`
 - Guest credentials for first boot bootstrap, default `vagrant` / `vagrant`
 
@@ -41,6 +45,8 @@ vsphere_box_provider = vmware_desktop
 vsphere_bootstrap_guest_network = true
 vsphere_guest_username = vagrant
 vsphere_guest_password = vagrant
+vsphere_guest_username_path =
+vsphere_guest_password_path =
 vsphere_ipv4_gateway =
 vsphere_ipv4_prefix_length =
 vsphere_dns_server =
@@ -54,6 +60,19 @@ vsphere_network_adapter = e1000
 VM names are prefixed with the GOAD instance id by default to avoid collisions. See the next section for commands to discover target, datastore, network, and folder values.
 
 If `vsphere_password` is empty or still set to the generated placeholder value `password`, GOAD prompts for it when a vSphere command needs authentication. For non-interactive runs, set `VSPHERE_PASSWORD` or `GOVC_PASSWORD` in the environment instead.
+
+For guest bootstrap credentials, `vsphere_guest_username_path` and
+`vsphere_guest_password_path` can point to local files on the orchestrator VM.
+Those values override `vsphere_guest_username` and `vsphere_guest_password` for
+guest operations. Extensions can also set per-VM credential paths.
+
+The vSphere provider supports two VM source types:
+
+- `:box`: existing Vagrant-box import through `vagrant box add` and `ovftool`.
+- `:template`: vCenter template clone through `govc vm.clone`.
+
+Template clone support is used by extensions that need local vCenter templates,
+such as `impacket-legacy`.
 
 ## Discover vSphere values
 

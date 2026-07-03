@@ -1,0 +1,33 @@
+{% macro file_lookup(path) -%}
+"{{ '{{' }} lookup('file', '{{ path }}') | trim {{ '}}' }}"
+{%- endmacro %}
+{% macro credential_vars(prefix) -%}
+{%- set user_path = config.get_value('impacket_legacy_vsphere', prefix ~ '_guest_username_path', config.get_value('vsphere', 'vsphere_guest_username_path', '')) -%}
+{%- set password_path = config.get_value('impacket_legacy_vsphere', prefix ~ '_guest_password_path', config.get_value('vsphere', 'vsphere_guest_password_path', '')) -%}
+{%- if user_path %} ansible_user={{ file_lookup(user_path) }}{%- endif -%}
+{%- if password_path %} ansible_password={{ file_lookup(password_path) }}{%- endif -%}
+{%- endmacro %}
+[default]
+dc2012r2 ansible_host={{ip_range}}.40 dns_domain=impacketlegacy dict_key=dc2012r2{{ credential_vars('dc2012r2') }}
+win2008r2 ansible_host={{ip_range}}.41 dns_domain=impacketlegacy dict_key=win2008r2{{ credential_vars('win2008r2') }}
+win7 ansible_host={{ip_range}}.42 dns_domain=impacketlegacy dict_key=win7{{ credential_vars('win7') }}
+
+[impacket_legacy_dc]
+dc2012r2
+
+[impacket_legacy_members]
+win2008r2
+win7
+
+[impacket_legacy_smb1]
+win2008r2
+win7
+
+[impacket_legacy_windows:children]
+impacket_legacy_dc
+impacket_legacy_members
+
+[extensions]
+dc2012r2
+win2008r2
+win7
