@@ -108,7 +108,8 @@ On each DC used for remote pytest:
 - LDAPS on 636 with a certificate whose SAN covers NetBIOS and FQDN names used by tests.
 - DHCP Server installed, authorized, and running for `test_dhcpm.py`. The default `impacket-qa` state keeps the same-subnet scope absent because current DHCPM tests assert non-present-subnet edge-case responses.
 - RemoteRegistry installed/enabled/running; RRP tests can start it, but it should be available at snapshot time.
-- Print Spooler running for RPRN tests.
+- Print Spooler running for RPRN tests. For the QA profile, patched Windows targets should lower `RpcAuthnLevelPrivacyEnabled` to `0` so older RPRN regression expectations still exercise Impacket behavior instead of stopping on spooler hardening.
+- TCP/IP NetBIOS enabled for NMB tests that query UDP/137 directly.
 - Task Scheduler, Event Log, Service Control Manager, WMI/DCOM available.
 - Mimilib RPC server running only on the designated Mimilib target, preferably `dc01`.
 

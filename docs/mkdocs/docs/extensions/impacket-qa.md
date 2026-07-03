@@ -12,13 +12,18 @@
 - A known `IMPACKETQA$` machine account in every GOAD domain.
 - LDAPS certificates on `dc01`, `dc02`, and `dc03`.
 - DHCP Server on `dc01`.
-- RemoteRegistry, Print Spooler, WMI, and firewall state on the main Windows targets.
+- RemoteRegistry, Print Spooler, WMI, TCP/IP NetBIOS, and firewall state on the main Windows targets.
+- Spooler RPC privacy relaxed for legacy RPRN regression expectations.
 - Optional Mimilib scheduled task support. The extension does not ship Mimikatz/Mimilib binaries.
 - `dcetests-*.cfg` templates with fixed-password hashes and AES keys.
 
 By default the DHCP service is installed and authorized, but the same-subnet
 scope is absent. This matches the current DHCPM regression tests, which assert
 specific non-present-subnet error codes.
+
+The spooler RPC privacy setting is intentionally lowered on QA targets. This is
+for regression compatibility with older RPRN test expectations on patched
+Windows servers, not a production recommendation.
 
 ## Default target
 

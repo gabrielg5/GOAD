@@ -9,13 +9,18 @@ It does not create new VMs.
 - A known machine account named `IMPACKETQA$` in each GOAD domain.
 - LDAPS certificates on `dc01`, `dc02`, and `dc03`.
 - DHCP Server on `dc01`, used by `tests/dcerpc/test_dhcpm.py`.
-- RemoteRegistry and Print Spooler running on the main Windows targets.
+- RemoteRegistry, Print Spooler, WMI, and TCP/IP NetBIOS services on the main Windows targets.
+- Spooler RPC privacy relaxed for legacy RPRN regression expectations.
 - No-op provider templates so the extension can be enabled on any GOAD provider.
 
 The DHCP service is installed and authorized, but the default QA state removes
 the same-subnet DHCP scope. Current DHCPM tests assert specific edge-case error
 codes for a non-present subnet. Set `impacket_qa_dhcp_scope_state=present` only
 if you need a real lease scope instead of matching those regression tests.
+
+The spooler RPC privacy setting is intentionally lowered on QA targets. This is
+for regression compatibility with older RPRN test expectations on patched
+Windows servers, not a production recommendation.
 
 ## Default pytest target
 
