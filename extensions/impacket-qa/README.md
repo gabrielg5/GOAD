@@ -51,20 +51,18 @@ py -3 -c "from impacket.ntlm import compute_lmhash, compute_nthash; p='Imp@cket-
 The user hash and AES keys can be obtained with `secretsdump.py` against the
 configured DC, or computed/collected with your existing Impacket test workflow.
 
-## Runner name resolution
+## Runner prerequisites
 
 Kerberos tests need the runner to resolve AD realm names such as
-`SEVENKINGDOMS.LOCAL`. From the runner/test VM, apply the local hosts-file
-overlay after the GOAD workspace inventory exists:
+`SEVENKINGDOMS.LOCAL`. Configure the test runner to use AD DNS, or add static
+records before running the Impacket remote suite. A minimal `/etc/hosts` entry
+for the default profile is:
 
 ```bash
-ANSIBLE_CONFIG=extensions/impacket-qa/ansible/ansible.cfg \
-ansible-playbook \
-  -i ad/GOAD/data/inventory \
-  -i workspaces/<instance_id>/inventory \
-  -i workspaces/<instance_id>/globalsettings.ini \
-  extensions/impacket-qa/ansible/runner-hosts.yml --ask-become-pass
+10.171.16.42 sevenkingdoms.local SEVENKINGDOMS.LOCAL kingslanding kingslanding.sevenkingdoms.local KINGSLANDING dc01
 ```
+
+Use the actual `dc01` IP for your lab.
 
 ## Mimilib
 

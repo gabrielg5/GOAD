@@ -79,7 +79,7 @@ Do not make these old hosts part of the default regression run. Use them for tar
 
 - Put every VM on one isolated lab VLAN/subnet.
 - Use the GOAD provider offsets: DC01 `.10`, DC02 `.11`, DC03 `.12`, SRV02 `.22`, SRV03 `.23`, Exchange `.21`, WS01 `.31`.
-- The runner must use AD DNS, or have static records for every NetBIOS name, FQDN, and Kerberos realm name used in config files. The `impacket-qa` overlay includes `ansible/runner-hosts.yml` to manage these `/etc/hosts` entries on a Linux runner.
+- The runner must use AD DNS, or have static records for every NetBIOS name, FQDN, and Kerberos realm name used in config files. This is a test-runner prerequisite, not GOAD lab state.
 - Time on the runner and DCs must be synchronized for Kerberos.
 - Disable the Windows firewall on lab-facing interfaces for regression targets, matching the existing GOAD vulnerability style.
 

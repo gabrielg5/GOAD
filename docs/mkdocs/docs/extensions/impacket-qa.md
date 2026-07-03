@@ -40,11 +40,14 @@ install_extension impacket-qa
 
 Copy a template from `extensions/impacket-qa/files/` into the Impacket `tests` directory and replace `{{ip_range}}` with the lab subnet prefix.
 
-## Runner name resolution
+## Runner prerequisites
 
-Run the local runner prep playbook from the test VM so Kerberos tests can
-resolve AD realm names:
+Kerberos tests need the runner to resolve AD realm names such as
+`SEVENKINGDOMS.LOCAL`. Configure the test runner to use AD DNS, or add static
+records before running the Impacket remote suite. For the default profile, the
+runner must resolve `sevenkingdoms.local` / `SEVENKINGDOMS.LOCAL` to `dc01`.
 
 ```
-ANSIBLE_CONFIG=extensions/impacket-qa/ansible/ansible.cfg ansible-playbook -i ad/GOAD/data/inventory -i workspaces/<instance_id>/inventory -i workspaces/<instance_id>/globalsettings.ini extensions/impacket-qa/ansible/runner-hosts.yml --ask-become-pass
+getent hosts SEVENKINGDOMS.LOCAL
+nc -vz SEVENKINGDOMS.LOCAL 88
 ```
