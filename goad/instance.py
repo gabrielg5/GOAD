@@ -254,6 +254,36 @@ class LabInstance:
             boxes_file.write(json.dumps(boxes, indent=4))
             Log.success(f'Instance ovftool boxes file created : {Utils.get_relative_path(instance_boxes_file)}')
 
+    def create_ovftool_extension_files(self, extension_name):
+        self.ip_plan = IpRange(self.ip_range)
+        extension_provider_folder = GoadPath.get_extension_providers_provider_path(extension_name, self.provider_name)
+        if not os.path.isfile(f'{extension_provider_folder}{sep}Vagrantfile'):
+            Log.error(f'No vSphere provider Vagrantfile found for extension {extension_name}')
+            return False
+
+        extension_environment = Environment(loader=FileSystemLoader(extension_provider_folder))
+        extension_vagrantfile_template = extension_environment.get_template("Vagrantfile")
+        source_content = self._render_template(
+            extension_vagrantfile_template,
+            lab_name=self.lab_name,
+            config=self.config
+        )
+        boxes = self._parse_vagrant_boxes(source_content)
+        if not boxes:
+            Log.error(f'No vSphere VMs found for extension {extension_name}')
+            return False
+
+        instance_vagrant_source_file = self.instance_provider_path + sep + 'Vagrantfile'
+        with open(instance_vagrant_source_file, mode="w", encoding="utf-8") as vagrantfile:
+            vagrantfile.write(source_content + "\n")
+            Log.info(f'Extension box source file created : {Utils.get_relative_path(instance_vagrant_source_file)}')
+
+        instance_boxes_file = self.instance_provider_path + sep + 'boxes.json'
+        with open(instance_boxes_file, mode="w", encoding="utf-8") as boxes_file:
+            boxes_file.write(json.dumps(boxes, indent=4))
+            Log.success(f'Extension ovftool boxes file created : {Utils.get_relative_path(instance_boxes_file)}')
+        return True
+
     def _create_ludus_config_file(self):
         # load lab vagrantfile
         lab_environment = Environment(loader=FileSystemLoader(GoadPath.get_lab_provider_path(self.lab_name, self.provider_name)))

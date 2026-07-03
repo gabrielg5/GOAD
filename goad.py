@@ -319,8 +319,18 @@ class Goad(cmd.Cmd):
                 extension_name = arg
                 extension = self.lab_manager.get_current_instance_lab().get_extension(extension_name)
                 if extension is not None:
-                    self.lab_manager.get_current_instance().enable_extension(extension_name)
-                    if self.lab_manager.get_current_instance_provider().install():
+                    instance = self.lab_manager.get_current_instance()
+                    instance.enable_extension(extension_name)
+                    install_result = False
+                    if instance.is_ovftool():
+                        if instance.create_ovftool_extension_files(extension_name):
+                            try:
+                                install_result = self.lab_manager.get_current_instance_provider().install()
+                            finally:
+                                instance.update_instance_folder()
+                    else:
+                        install_result = self.lab_manager.get_current_instance_provider().install()
+                    if install_result:
                         self.lab_manager.get_current_instance().set_status(PROVIDED)
                 else:
                     Log.error(f'extension {extension_name} not found abort')
