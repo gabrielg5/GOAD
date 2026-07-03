@@ -200,25 +200,26 @@ class VsphereProvider(Provider):
                 time.sleep(delay)
         return False
 
-    def _inventory_object_type(self, inventory_path):
-        output = self._capture_govc_quiet(['collect', '-s', inventory_path, 'self'])
-        if output is None:
-            return None
-        ref = output.strip().splitlines()
-        if not ref or ':' not in ref[0]:
-            return None
-        return ref[0].split(':', 1)[0]
+    def _folder_exists(self, folder_ref):
+        return self._capture_govc_quiet(['folder.info', folder_ref]) is not None
 
-    def _inventory_object_exists(self, inventory_path, expected_type=None):
-        object_type = self._inventory_object_type(inventory_path)
-        if object_type is None:
+    def _vm_object_exists(self, vm_ref):
+        output = self._capture_govc_quiet(['vm.info', '-json', vm_ref])
+        if output is None:
             return False
-        if expected_type is not None and object_type != expected_type:
-            return False
-        return True
+
+        try:
+            data = json.loads(output)
+        except json.JSONDecodeError:
+            return 'Name:' in output
+
+        vms = data.get('virtualMachines')
+        if vms is None:
+            vms = data.get('VirtualMachines')
+        return bool(vms)
 
     def _vm_exists(self, vm_name):
-        return self._inventory_object_exists(self._vm_ref(vm_name), 'VirtualMachine')
+        return self._vm_object_exists(self._vm_ref(vm_name))
 
     def _run_govc_guest_retry(self, args, timeout=None, delay=None):
         timeout = self.guest_operations_timeout if timeout is None else timeout
@@ -1038,12 +1039,12 @@ try {{
             Log.info(f'Skip existing VM {vm_name}; remove this VM or use another vm_name_prefix to recreate it')
             return True
 
-        if folder_ref and not self._inventory_object_exists(folder_ref, 'Folder'):
+        if folder_ref and not self._folder_exists(folder_ref):
             Log.error(f'vSphere destination folder not found: {folder_ref}')
             Log.info(f'Check [vsphere] vsphere_folder = {self.vm_folder}')
             return False
 
-        if not self._inventory_object_exists(template_ref, 'VirtualMachine'):
+        if not self._vm_object_exists(template_ref):
             Log.error(f'vSphere template not found: {template_ref}')
             Log.info(f'Check [impacket_legacy_vsphere] template value: {template}')
             return False
