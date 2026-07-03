@@ -320,8 +320,20 @@
           $options = @(Get-DhcpServerV4OptionValue -ErrorAction SilentlyContinue)
           $dnsOption = $options | Where-Object { $_.OptionId -eq 6 } | Select-Object -First 1
           $routerOption = $options | Where-Object { $_.OptionId -eq 3 } | Select-Object -First 1
-          $currentDns = @($dnsOption.Value | ForEach-Object { $_.ToString() })
-          $currentRouter = @($routerOption.Value | ForEach-Object { $_.ToString() })
+          $currentDns = @()
+          $currentRouter = @()
+
+          if ($null -ne $dnsOption -and $null -ne $dnsOption.Value) {
+              $currentDns = @($dnsOption.Value |
+                  Where-Object { $null -ne $_ } |
+                  ForEach-Object { $_.ToString() })
+          }
+
+          if ($null -ne $routerOption -and $null -ne $routerOption.Value) {
+              $currentRouter = @($routerOption.Value |
+                  Where-Object { $null -ne $_ } |
+                  ForEach-Object { $_.ToString() })
+          }
 
           if ($currentDns.Count -ne 1 -or $currentDns[0] -ne $DnsServer -or
               $currentRouter.Count -ne 1 -or $currentRouter[0] -ne $Router) {
