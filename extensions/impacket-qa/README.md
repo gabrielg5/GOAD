@@ -69,7 +69,8 @@ configured DC, or computed/collected with your existing Impacket test workflow.
 ## Core pytest profile
 
 From the Impacket repository root on the test runner, use the helper script to
-avoid shell line-continuation mistakes:
+avoid shell line-continuation mistakes. By default this runs the expected-green
+GOAD modern profile:
 
 ```bash
 bash ~/GOAD/extensions/impacket-qa/scripts/run-goad-core.sh
@@ -81,8 +82,29 @@ Set `REMOTE_CONFIG` or `LOG_FILE` if needed:
 REMOTE_CONFIG=tests/dcetests.cfg LOG_FILE=goad-core.log bash ~/GOAD/extensions/impacket-qa/scripts/run-goad-core.sh
 ```
 
-This core profile excludes SMB dialect, NMB, RPCH, Mimilib, and the known DHCPM
-NDR64 edge-case test.
+This profile excludes SMB dialect, NMB, RPCH, Mimilib, the known DHCPM NDR64
+edge-case test, and the currently classified GOAD/Server 2019 deltas:
+
+- BKRP retrieve-backup-key certificate parsing.
+- DRSUAPI pytest calls over `\PIPE\lsass`; DRSUAPI itself is validated with
+  `secretsdump.py`.
+- EVEN6 `EvtRpcExportLog`.
+- NRPC discovery and `NetrLogonSamLogonEx` hardening paths.
+- RRP `BaseRegQueryMultipleValues` fixed-buffer cases.
+- SRVS `NetrServerStatisticsGet` with a null service name.
+- TSCH SASEC `SAGetNSAccountInformation` fixed-buffer cases.
+
+Run strict mode to include those deltas for investigation:
+
+```bash
+STRICT=1 bash ~/GOAD/extensions/impacket-qa/scripts/run-goad-core.sh
+```
+
+Validate DRSUAPI with:
+
+```bash
+python examples/secretsdump.py -just-dc-user 'SEVENKINGDOMS/krbtgt' -dc-ip 10.171.16.42 'sevenkingdoms.local/impacket.admin:Imp@cket-Admin123!@10.171.16.42'
+```
 
 ## Runner prerequisites
 

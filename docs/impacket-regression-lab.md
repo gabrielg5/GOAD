@@ -201,11 +201,11 @@ Rollback to `pre-run` after each full remote run. Refresh `pre-run` only after a
 | --- | --- | --- |
 | Local unit tests, parsers, packet structures, SMB server unit tests | none | host/runner only |
 | Windows-only local DPAPI tests | Windows host or Windows runner | host/runner only |
-| General DCE/RPC remote tests | `dcetests-goad-dc01.cfg` | Tier 1 |
+| General DCE/RPC remote tests | `dcetests-goad-dc01.cfg` with GOAD expected-delta deselections | Tier 1 |
 | LDAP and LDAPS | `dcetests-goad-dc01.cfg` | Tier 1 with LDAPS |
 | DHCPM RPC | `dcetests-goad-dc01.cfg` | Tier 1 with DHCP |
 | Mimilib RPC | `dcetests-goad-dc01.cfg` | Tier 1 with Mimilib |
-| Secretsdump DRSUAPI/VSS | `dcetests-goad-dc01.cfg` | Tier 1 |
+| Secretsdump DRSUAPI/VSS | `dcetests-goad-dc01.cfg`; validate with a domain-qualified account such as `SEVENKINGDOMS/krbtgt` | Tier 1 |
 | MSSQL examples | `srv02`, `srv03` | Tier 1 |
 | ADCS and web enrollment examples | `dc01`, `srv03` | Tier 1 |
 | NMB node-status, SMB1, NetBIOS, Unicode pytest | `dcetests-smb1-win7.cfg` | Tier 3 |
@@ -214,6 +214,18 @@ Rollback to `pre-run` after each full remote run. Refresh `pre-run` only after a
 | RPCH and Exchange examples | `dcetests-exchange.cfg` | Tier 2 |
 | RODC behavior | `dcetests-rodc.cfg` | Tier 2 add-on |
 | NTLM relay | WebDAV/IIS client plus no-signing SMB target | Tier 2 or Tier 3 |
+
+The GOAD modern core profile has known deltas from Impacket's historical
+Windows Server 2012 R2 test baseline. Keep these out of the expected-green GOAD
+run and include them only in strict investigation runs:
+
+- BKRP retrieve-backup-key certificate parsing.
+- DRSUAPI pytest calls over `\PIPE\lsass`; DRSUAPI itself is validated with `secretsdump.py`.
+- EVEN6 `EvtRpcExportLog`.
+- NRPC discovery and `NetrLogonSamLogonEx` hardening paths.
+- RRP `BaseRegQueryMultipleValues` fixed-buffer cases.
+- SRVS `NetrServerStatisticsGet` with a null service name.
+- TSCH SASEC `SAGetNSAccountInformation` fixed-buffer cases.
 
 ## Implementation Shape in GOAD
 
