@@ -228,6 +228,81 @@ potential Impacket bugs:
 - SRVS `NetrServerStatisticsGet` with a null service name.
 - TSCH SASEC `SAGetNSAccountInformation` fixed-buffer cases.
 
+## Impacket Test Command Groups
+
+Run these from the Impacket repository on the test runner:
+
+```bash
+cd ~/impacket
+. .venv/bin/activate
+RC=tests/dcetests.cfg
+```
+
+Broad local and remote groups:
+
+```bash
+python -m pytest -m "not remote" -v
+python -m pytest -m remote --remote-config "$RC" -v
+```
+
+Modern GOAD remote run without optional or legacy-only target families:
+
+```bash
+python -m pytest -m remote --remote-config "$RC" \
+  --ignore=tests/SMB_RPC/test_smb.py \
+  --ignore=tests/SMB_RPC/test_nmb.py \
+  --ignore=tests/SMB_RPC/test_rpch.py \
+  --ignore=tests/dcerpc/test_mimilib.py \
+  -v
+```
+
+Validated GOAD core areas:
+
+```bash
+python -m pytest tests/dcerpc/test_samr.py --remote-config "$RC" -v
+python -m pytest tests/SMB_RPC/test_ldap.py --remote-config "$RC" -v
+python -m pytest tests/dcerpc/test_rprn.py --remote-config "$RC" -v
+python -m pytest tests/dcerpc/test_dhcpm.py --remote-config "$RC" -v
+```
+
+Strict groups that currently look like old OS assumptions or modern Windows
+hardening differences:
+
+```bash
+python -m pytest tests/dcerpc/test_drsuapi.py --remote-config "$RC" -v
+python -m pytest tests/dcerpc/test_nrpc.py --remote-config "$RC" -v
+python -m pytest tests/dcerpc/test_srvs.py --remote-config "$RC" -k "NetrServerStatisticsGet" -v
+```
+
+Strict groups that currently look like Impacket implementation or test-suite
+issues:
+
+```bash
+python -m pytest tests/dcerpc/test_bkrp.py -k "RETRIEVE_BACKUP_KEY" --remote-config "$RC" -v
+python -m pytest tests/dcerpc/test_even6.py -k "EvtRpcExportLog" --remote-config "$RC" -v
+python -m pytest tests/dcerpc/test_rrp.py -k "BaseRegQueryMultipleValues" --remote-config "$RC" -v
+python -m pytest tests/dcerpc/test_tsch.py -k "SAGetNSAccountInformation" --remote-config "$RC" -v
+```
+
+Known NDR64 candidate:
+
+```bash
+python -m pytest tests/dcerpc/test_dhcpm.py::DHCPMTestsTCPTransport64::test_hDhcpEnumSubnetClientsV5 --remote-config "$RC" -v
+```
+
+Optional or separate-target groups:
+
+```bash
+python -m pytest tests/SMB_RPC/test_nmb.py --remote-config tests/dcetests-smb1-win7.cfg -v
+python -m pytest tests/SMB_RPC/test_smb.py --remote-config tests/dcetests-smb1-win7.cfg -v
+python -m pytest tests/SMB_RPC/test_rpch.py --remote-config tests/dcetests-exchange.cfg -v
+python -m pytest tests/dcerpc/test_mimilib.py --remote-config "$RC" -v
+```
+
+These commands are documentation examples for operating the lab. Durable pytest
+profiles, deselection policy, and xfail decisions should live in the Impacket
+repository.
+
 ## Implementation Shape in GOAD
 
 Add one GOAD extension for the automated core and keep legacy coverage as a separate future extension:

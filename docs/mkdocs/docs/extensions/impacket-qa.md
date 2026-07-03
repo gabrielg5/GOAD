@@ -61,6 +61,9 @@ This extension prepares the lab and provides remote config templates. Pytest
 commands, deselection policy, and expected-failure handling should live in the
 Impacket repository, following `TESTING.md`.
 
+Suggested Impacket-side command groups for operating this lab are documented in
+`docs/impacket-regression-lab.md`.
+
 During validation against Windows Server 2019 `dc01`, these strict-run deltas
 were observed and should be tracked from the Impacket side:
 
