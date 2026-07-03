@@ -172,6 +172,7 @@ destroy_vm <vm_name> .................... destroy selected virtual machine
 *** Extensions ***
 list_extensions ......................... list extensions
 install_extension <extension> ........... install extension (providing + provisioning)
+provide_extension <extension> ........... provide extension (provider only)
 provision_extension <extension> ......... provision extension (provisioning only)
 
 *** JumpBox ***
@@ -285,6 +286,15 @@ Add an extension to the lab (providing + provisioning)
 
 ```
 install_extension <extension_name>
+```
+
+### provide_extension
+
+Run only the provider step for an extension. This is useful when the VM creation
+host and the Ansible provisioning host are different machines.
+
+```
+provide_extension <extension_name>
 ```
 
 ### provision_extension

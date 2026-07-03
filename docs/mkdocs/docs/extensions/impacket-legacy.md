@@ -61,9 +61,17 @@ Enable the extension before vSphere install when possible:
 ./goad.sh -t install -l GOAD -p vsphere -e impacket-qa,impacket-legacy -ip 10.171.16.32/27
 ```
 
-If GOAD is already deployed, enabling the extension and running install again
-will skip existing VMs when `vsphere_overwrite=false` and create the missing
-legacy VMs.
+If GOAD is already deployed and your orchestrator VM cannot reach WinRM in the
+lab, use the provider-only extension command on the orchestrator:
+
+```bash
+./goad.sh
+load <instance>
+provide_extension impacket-legacy
+```
+
+This enables the extension, regenerates the workspace files, skips existing VMs
+when `vsphere_overwrite=false`, and creates the missing legacy VMs.
 
 Then apply the extension configuration:
 

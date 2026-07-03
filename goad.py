@@ -309,6 +309,24 @@ class Goad(cmd.Cmd):
             else:
                 Log.error('Install extension can only be run from an instance')
 
+    def do_provide_extension(self, arg):
+        if arg == '':
+            Log.error('missing extension argument')
+            Log.info(f'provide_extension <extension>')
+        else:
+            Log.info('start providing extension')
+            if self.lab_manager.current_instance is not None:
+                extension_name = arg
+                extension = self.lab_manager.get_current_instance_lab().get_extension(extension_name)
+                if extension is not None:
+                    self.lab_manager.get_current_instance().enable_extension(extension_name)
+                    if self.lab_manager.get_current_instance_provider().install():
+                        self.lab_manager.get_current_instance().set_status(PROVIDED)
+                else:
+                    Log.error(f'extension {extension_name} not found abort')
+            else:
+                Log.error('Provide extension can only be run from an instance')
+
     def do_provision_extension(self, arg):
         if arg == '':
             Log.error('missing extension argument')

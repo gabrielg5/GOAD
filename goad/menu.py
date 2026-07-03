@@ -53,6 +53,7 @@ def print_menu(lab_manager, advanced=True, debug=False):
         print_menu_entry('install_extension <extension>', 'install extension (providing + provisioning)')
 
         if advanced:
+            print_menu_entry('provide_extension <extension>', 'provide extension (provider only)')
             print_menu_entry('provision_extension <extension>', 'provision extension (provisioning only)')
 
         if use_jumpbox:
