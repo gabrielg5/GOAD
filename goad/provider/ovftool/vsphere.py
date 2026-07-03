@@ -910,7 +910,7 @@ try {{
     def _deploy_box(self, box):
         vm_name = self._vm_name(box)
         if self._vm_exists(vm_name) and not self.overwrite:
-            Log.info(f'Skip existing VM {vm_name}; set vsphere_overwrite=true to replace it')
+            Log.info(f'Skip existing VM {vm_name}; remove this VM or use another vm_name_prefix to recreate it')
             return True
 
         provider_dir = self._ensure_box(box)
@@ -969,7 +969,7 @@ try {{
 
         vm_name = self._vm_name(box)
         if self._vm_exists(vm_name) and not self.overwrite:
-            Log.info(f'Skip existing VM {vm_name}; set vsphere_overwrite=true to replace it')
+            Log.info(f'Skip existing VM {vm_name}; remove this VM or use another vm_name_prefix to recreate it')
             return True
 
         if self.overwrite:
