@@ -16,16 +16,12 @@ dc2012r2_template = /Datacenter/vm/Templates/win2012r2
 win2008r2_template = /Datacenter/vm/Templates/win2008r2
 win7_template = /Datacenter/vm/Templates/win7
 
-dc2012r2_guest_username_path = /secure/goad/dc2012r2.user
-dc2012r2_guest_password_path = /secure/goad/dc2012r2.pass
-win2008r2_guest_username_path = /secure/goad/win2008r2.user
-win2008r2_guest_password_path = /secure/goad/win2008r2.pass
-win7_guest_username_path = /secure/goad/win7.user
-win7_guest_password_path = /secure/goad/win7.pass
+guest_username_path = /secure/goad/legacy.user
+guest_password_path = /secure/goad/legacy.pass
 ```
 
-If all legacy templates use the same bootstrap credentials, use the shared
-paths in `[vsphere]` instead:
+If these credentials should be shared by every vSphere VM source, use the
+global paths in `[vsphere]` instead:
 
 ```ini
 [vsphere]

@@ -2,8 +2,8 @@ boxes.append(
   { :name => "{{lab_name}}-IMPACKET-DC2012R2",
     :ip => "{{ip_range}}.40",
     :template => "{{ config.get_value('impacket_legacy_vsphere', 'dc2012r2_template', '') }}",
-    :guest_username_path => "{{ config.get_value('impacket_legacy_vsphere', 'dc2012r2_guest_username_path', config.get_value('vsphere', 'vsphere_guest_username_path', '')) }}",
-    :guest_password_path => "{{ config.get_value('impacket_legacy_vsphere', 'dc2012r2_guest_password_path', config.get_value('vsphere', 'vsphere_guest_password_path', '')) }}",
+    :guest_username_path => "{{ config.get_value('impacket_legacy_vsphere', 'guest_username_path', config.get_value('vsphere', 'vsphere_guest_username_path', '')) }}",
+    :guest_password_path => "{{ config.get_value('impacket_legacy_vsphere', 'guest_password_path', config.get_value('vsphere', 'vsphere_guest_password_path', '')) }}",
     :os => "windows",
     :cpus => 2,
     :mem => 4096
@@ -11,8 +11,8 @@ boxes.append(
   { :name => "{{lab_name}}-IMPACKET-WIN2008R2",
     :ip => "{{ip_range}}.41",
     :template => "{{ config.get_value('impacket_legacy_vsphere', 'win2008r2_template', '') }}",
-    :guest_username_path => "{{ config.get_value('impacket_legacy_vsphere', 'win2008r2_guest_username_path', config.get_value('vsphere', 'vsphere_guest_username_path', '')) }}",
-    :guest_password_path => "{{ config.get_value('impacket_legacy_vsphere', 'win2008r2_guest_password_path', config.get_value('vsphere', 'vsphere_guest_password_path', '')) }}",
+    :guest_username_path => "{{ config.get_value('impacket_legacy_vsphere', 'guest_username_path', config.get_value('vsphere', 'vsphere_guest_username_path', '')) }}",
+    :guest_password_path => "{{ config.get_value('impacket_legacy_vsphere', 'guest_password_path', config.get_value('vsphere', 'vsphere_guest_password_path', '')) }}",
     :os => "windows",
     :cpus => 2,
     :mem => 4096
@@ -20,8 +20,8 @@ boxes.append(
   { :name => "{{lab_name}}-IMPACKET-WIN7",
     :ip => "{{ip_range}}.42",
     :template => "{{ config.get_value('impacket_legacy_vsphere', 'win7_template', '') }}",
-    :guest_username_path => "{{ config.get_value('impacket_legacy_vsphere', 'win7_guest_username_path', config.get_value('vsphere', 'vsphere_guest_username_path', '')) }}",
-    :guest_password_path => "{{ config.get_value('impacket_legacy_vsphere', 'win7_guest_password_path', config.get_value('vsphere', 'vsphere_guest_password_path', '')) }}",
+    :guest_username_path => "{{ config.get_value('impacket_legacy_vsphere', 'guest_username_path', config.get_value('vsphere', 'vsphere_guest_username_path', '')) }}",
+    :guest_password_path => "{{ config.get_value('impacket_legacy_vsphere', 'guest_password_path', config.get_value('vsphere', 'vsphere_guest_password_path', '')) }}",
     :os => "windows",
     :cpus => 2,
     :mem => 3072

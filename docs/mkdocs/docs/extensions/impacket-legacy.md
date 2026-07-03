@@ -32,20 +32,16 @@ Tools bootstrap used by the GOAD vSphere provider.
 
 ## Guest credential files
 
-Use per-template credential files when the templates do not share the same
-local Administrator credentials:
+Use shared credential files for the legacy templates:
 
 ```ini
 [impacket_legacy_vsphere]
-dc2012r2_guest_username_path = /secure/goad/dc2012r2.user
-dc2012r2_guest_password_path = /secure/goad/dc2012r2.pass
-win2008r2_guest_username_path = /secure/goad/win2008r2.user
-win2008r2_guest_password_path = /secure/goad/win2008r2.pass
-win7_guest_username_path = /secure/goad/win7.user
-win7_guest_password_path = /secure/goad/win7.pass
+guest_username_path = /secure/goad/legacy.user
+guest_password_path = /secure/goad/legacy.pass
 ```
 
-If all legacy templates share credentials, use the shared vSphere paths:
+If these credentials should be shared by every vSphere VM source, use the
+global vSphere paths:
 
 ```ini
 [vsphere]
