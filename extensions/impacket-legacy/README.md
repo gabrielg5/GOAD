@@ -20,6 +20,10 @@ guest_username = Administrator
 guest_password = TemplatePassword123!
 ```
 
+Template paths can be full govc inventory paths (`/Datacenter/vm/...`) or
+paths relative to the datacenter VM folder (`Templates/win2012r2` or
+`/Templates/win2012r2`). GOAD normalizes them before calling `govc`.
+
 If these credentials should be shared by every vSphere VM source, use the
 global values in `[vsphere]` instead:
 

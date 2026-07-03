@@ -174,7 +174,7 @@ class VsphereProvider(Provider):
         if datacenter:
             env['GOVC_DATACENTER'] = datacenter
         if self.vm_folder:
-            env['GOVC_FOLDER'] = self.vm_folder
+            env['GOVC_FOLDER'] = self._vm_folder_ref()
         return env
 
     def _run_govc(self, args):
@@ -182,6 +182,14 @@ class VsphereProvider(Provider):
 
     def _capture_govc(self, args):
         return self._capture([self.govc_bin] + args, self._govc_env())
+
+    def _capture_govc_quiet(self, args):
+        command = [self.govc_bin] + args
+        self._log_command(command)
+        result = subprocess.run(command, cwd=self.path, env=self._govc_env(), capture_output=True, text=True)
+        if result.returncode != 0:
+            return None
+        return result.stdout
 
     def _run_govc_retry(self, args, tries=30, delay=10):
         for attempt in range(1, tries + 1):
@@ -192,33 +200,25 @@ class VsphereProvider(Provider):
                 time.sleep(delay)
         return False
 
-    def _vm_exists(self, vm_name):
-        vm_ref = self._vm_ref(vm_name)
-        command = [self.govc_bin, 'ls', '-json', vm_ref]
-        self._log_command(command)
-        result = subprocess.run(
-            command,
-            cwd=self.path,
-            env=self._govc_env(),
-            capture_output=True,
-            text=True
-        )
-        if result.returncode != 0:
+    def _inventory_object_type(self, inventory_path):
+        output = self._capture_govc_quiet(['collect', '-s', inventory_path, 'self'])
+        if output is None:
+            return None
+        ref = output.strip().splitlines()
+        if not ref or ':' not in ref[0]:
+            return None
+        return ref[0].split(':', 1)[0]
+
+    def _inventory_object_exists(self, inventory_path, expected_type=None):
+        object_type = self._inventory_object_type(inventory_path)
+        if object_type is None:
             return False
+        if expected_type is not None and object_type != expected_type:
+            return False
+        return True
 
-        try:
-            data = json.loads(result.stdout)
-        except json.JSONDecodeError:
-            expected = vm_ref.rstrip('/')
-            return any(line.strip().rstrip('/') == expected for line in result.stdout.splitlines())
-
-        expected = vm_ref.rstrip('/')
-        for element in data.get('Elements', []):
-            path = str(element.get('Path', '')).rstrip('/')
-            object_type = element.get('Object', {}).get('Type', '')
-            if path == expected and object_type == 'VirtualMachine':
-                return True
-        return False
+    def _vm_exists(self, vm_name):
+        return self._inventory_object_exists(self._vm_ref(vm_name), 'VirtualMachine')
 
     def _run_govc_guest_retry(self, args, timeout=None, delay=None):
         timeout = self.guest_operations_timeout if timeout is None else timeout
@@ -288,24 +288,31 @@ class VsphereProvider(Provider):
             return ''
         return target.split('/')[0]
 
+    def _vm_inventory_ref(self, inventory_path):
+        inventory_path = str(inventory_path).strip()
+        if not inventory_path:
+            return inventory_path
+        if re.match(r'^[A-Za-z]+:[A-Za-z0-9_-]+$', inventory_path):
+            return inventory_path
+
+        datacenter = self._datacenter_name()
+        if not datacenter:
+            return inventory_path
+
+        relative_path = inventory_path.strip('/')
+        if relative_path == datacenter or relative_path.startswith(f'{datacenter}/'):
+            return f'/{relative_path}'
+        if relative_path == 'vm' or relative_path.startswith('vm/'):
+            return f'/{datacenter}/{relative_path}'
+        return f'/{datacenter}/vm/{relative_path}'
+
     def _vm_folder_ref(self):
-        folder = self.vm_folder.strip()
-        if not folder:
+        if not self.vm_folder.strip():
             datacenter = self._datacenter_name()
             if datacenter:
                 return f'/{datacenter}/vm'
             return ''
-
-        if folder.startswith('/'):
-            return folder.rstrip('/')
-
-        folder = folder.strip('/')
-        datacenter = self._datacenter_name()
-        if datacenter and (folder == f'{datacenter}/vm' or folder.startswith(f'{datacenter}/vm/')):
-            return f'/{folder}'
-        if datacenter:
-            return f'/{datacenter}/vm/{folder}'
-        return folder
+        return self._vm_inventory_ref(self.vm_folder)
 
     def _vm_ref(self, vm_name):
         folder_ref = self._vm_folder_ref()
@@ -1025,15 +1032,27 @@ try {{
 
         vm_name = self._vm_name(box)
         vm_ref = self._vm_ref(vm_name)
+        template_ref = self._vm_inventory_ref(template)
+        folder_ref = self._vm_folder_ref()
         if self._vm_exists(vm_name) and not self.overwrite:
             Log.info(f'Skip existing VM {vm_name}; remove this VM or use another vm_name_prefix to recreate it')
             return True
+
+        if folder_ref and not self._inventory_object_exists(folder_ref, 'Folder'):
+            Log.error(f'vSphere destination folder not found: {folder_ref}')
+            Log.info(f'Check [vsphere] vsphere_folder = {self.vm_folder}')
+            return False
+
+        if not self._inventory_object_exists(template_ref, 'VirtualMachine'):
+            Log.error(f'vSphere template not found: {template_ref}')
+            Log.info(f'Check [impacket_legacy_vsphere] template value: {template}')
+            return False
 
         if self.overwrite:
             self._run_govc(['vm.power', '-off', vm_ref])
             self._run_govc(['vm.destroy', vm_ref])
 
-        command = ['vm.clone', f'-vm={template}', '-on=false']
+        command = ['vm.clone', f'-vm={template_ref}', '-on=false']
         if self.datastore:
             command.append(f'-ds={self.datastore}')
         if self.vm_folder:

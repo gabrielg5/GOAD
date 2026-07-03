@@ -27,6 +27,10 @@ win2008r2_template = /Datacenter/vm/Templates/win2008r2
 win7_template = /Datacenter/vm/Templates/win7
 ```
 
+Template paths may be full govc inventory paths (`/Datacenter/vm/...`) or
+paths relative to the datacenter VM folder (`Templates/win2012r2` or
+`/Templates/win2012r2`). GOAD normalizes them before calling `govc`.
+
 The provider clones these with `govc vm.clone`, then applies the same VMware
 Tools bootstrap used by the GOAD vSphere provider.
 
