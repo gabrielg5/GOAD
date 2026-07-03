@@ -79,7 +79,7 @@ Do not make these old hosts part of the default regression run. Use them for tar
 
 - Put every VM on one isolated lab VLAN/subnet.
 - Use the GOAD provider offsets: DC01 `.10`, DC02 `.11`, DC03 `.12`, SRV02 `.22`, SRV03 `.23`, Exchange `.21`, WS01 `.31`.
-- The runner must use AD DNS, or have static records for every NetBIOS name and FQDN used in config files.
+- The runner must use AD DNS, or have static records for every NetBIOS name, FQDN, and Kerberos realm name used in config files. The `impacket-qa` overlay includes `ansible/runner-hosts.yml` to manage these `/etc/hosts` entries on a Linux runner.
 - Time on the runner and DCs must be synchronized for Kerberos.
 - Disable the Windows firewall on lab-facing interfaces for regression targets, matching the existing GOAD vulnerability style.
 
@@ -106,7 +106,7 @@ On each DC used for remote pytest:
 
 - AD DS, DNS, LDAP, Kerberos, SMB, Netlogon, SAMR, LSA, DRSUAPI.
 - LDAPS on 636 with a certificate whose SAN covers NetBIOS and FQDN names used by tests.
-- DHCP Server installed, authorized, scoped, and running for `test_dhcpm.py`.
+- DHCP Server installed, authorized, and running for `test_dhcpm.py`. The default `impacket-qa` state keeps the same-subnet scope absent because current DHCPM tests assert non-present-subnet edge-case responses.
 - RemoteRegistry installed/enabled/running; RRP tests can start it, but it should be available at snapshot time.
 - Print Spooler running for RPRN tests.
 - Task Scheduler, Event Log, Service Control Manager, WMI/DCOM available.

@@ -220,6 +220,8 @@
     ip_mask: "255.255.255.0"
     lease_duration: "1.00:00:00"
     dns_ip: "{{ dc_ip }}"
+    impacket_qa_dhcp_scope_id: "{{ ip_root }}.0"
+    impacket_qa_dhcp_scope_state: "absent"
   tasks:
     - name: Install DHCP Server
       ansible.windows.win_feature:
@@ -266,37 +268,51 @@
         ansible_become_user: "{{ domain_username }}"
         ansible_become_password: "{{ domain_password }}"
 
-    - name: Ensure DHCP scope exists
+    - name: Ensure DHCP scope state for Impacket QA
       ansible.windows.win_powershell:
         script: |
           [CmdletBinding()]
           param (
+              [String] $ScopeId,
               [String] $StartRange,
               [String] $EndRange,
               [String] $SubnetMask,
-              [String] $LeaseDuration
+              [String] $LeaseDuration,
+              [ValidateSet("present", "absent")]
+              [String] $State
           )
 
           $ErrorActionPreference = "Stop"
           $changed = $false
-          $scopes = @(Get-DhcpServerv4Scope -ErrorAction SilentlyContinue)
+          $scope = Get-DhcpServerv4Scope -ErrorAction SilentlyContinue |
+              Where-Object { $_.ScopeId.IPAddressToString -eq $ScopeId } |
+              Select-Object -First 1
 
-          if ($scopes.Count -eq 0) {
-              Add-DhcpServerV4Scope `
-                  -Name "Impacket QA DHCP Scope" `
-                  -StartRange $StartRange `
-                  -EndRange $EndRange `
-                  -SubnetMask $SubnetMask `
-                  -LeaseDuration $LeaseDuration
-              $changed = $true
+          if ($State -eq "present") {
+              if ($null -eq $scope) {
+                  Add-DhcpServerV4Scope `
+                      -Name "Impacket QA DHCP Scope" `
+                      -StartRange $StartRange `
+                      -EndRange $EndRange `
+                      -SubnetMask $SubnetMask `
+                      -LeaseDuration $LeaseDuration
+                  $changed = $true
+              }
+          } else {
+              if ($null -ne $scope) {
+                  Remove-DhcpServerV4Scope -ScopeId $ScopeId -Force
+                  $changed = $true
+              }
           }
 
           $Ansible.Changed = $changed
         parameters:
+          ScopeId: "{{ impacket_qa_dhcp_scope_id }}"
           StartRange: "{{ ip_from }}"
           EndRange: "{{ ip_to }}"
           SubnetMask: "{{ ip_mask }}"
           LeaseDuration: "{{ lease_duration }}"
+          State: "{{ impacket_qa_dhcp_scope_state }}"
 
     - name: Read default gateway
       ansible.windows.win_shell: |

@@ -1,0 +1,41 @@
+---
+- name: Configure Impacket QA runner name resolution
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: true
+  vars:
+    impacket_qa_runner_hosts:
+      - ip: "{{ hostvars['dc01'].ansible_host }}"
+        names:
+          - sevenkingdoms.local
+          - SEVENKINGDOMS.LOCAL
+          - kingslanding
+          - kingslanding.sevenkingdoms.local
+          - KINGSLANDING
+          - dc01
+      - ip: "{{ hostvars['dc02'].ansible_host }}"
+        names:
+          - north.sevenkingdoms.local
+          - NORTH.SEVENKINGDOMS.LOCAL
+          - winterfell
+          - winterfell.north.sevenkingdoms.local
+          - WINTERFELL
+          - dc02
+      - ip: "{{ hostvars['dc03'].ansible_host }}"
+        names:
+          - essos.local
+          - ESSOS.LOCAL
+          - meereen
+          - meereen.essos.local
+          - MEEREEN
+          - dc03
+  tasks:
+    - name: Update runner hosts file for Impacket Kerberos tests
+      ansible.builtin.blockinfile:
+        path: /etc/hosts
+        marker: "# {mark} GOAD impacket-qa"
+        block: |
+          {% for entry in impacket_qa_runner_hosts %}
+          {{ entry.ip }} {{ entry.names | join(' ') }}
+          {% endfor %}

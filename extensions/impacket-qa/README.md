@@ -12,6 +12,11 @@ It does not create new VMs.
 - RemoteRegistry and Print Spooler running on the main Windows targets.
 - No-op provider templates so the extension can be enabled on any GOAD provider.
 
+The DHCP service is installed and authorized, but the default QA state removes
+the same-subnet DHCP scope. Current DHCPM tests assert specific edge-case error
+codes for a non-present subnet. Set `impacket_qa_dhcp_scope_state=present` only
+if you need a real lease scope instead of matching those regression tests.
+
 ## Default pytest target
 
 Use `dc01` / `kingslanding.sevenkingdoms.local` as the default remote target.
@@ -45,6 +50,21 @@ py -3 -c "from impacket.ntlm import compute_lmhash, compute_nthash; p='Imp@cket-
 
 The user hash and AES keys can be obtained with `secretsdump.py` against the
 configured DC, or computed/collected with your existing Impacket test workflow.
+
+## Runner name resolution
+
+Kerberos tests need the runner to resolve AD realm names such as
+`SEVENKINGDOMS.LOCAL`. From the runner/test VM, apply the local hosts-file
+overlay after the GOAD workspace inventory exists:
+
+```bash
+ANSIBLE_CONFIG=extensions/impacket-qa/ansible/ansible.cfg \
+ansible-playbook \
+  -i ad/GOAD/data/inventory \
+  -i workspaces/<instance_id>/inventory \
+  -i workspaces/<instance_id>/globalsettings.ini \
+  extensions/impacket-qa/ansible/runner-hosts.yml --ask-become-pass
+```
 
 ## Mimilib
 
