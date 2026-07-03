@@ -36,6 +36,7 @@
           $ErrorActionPreference = "Stop"
           $changed = $false
           $dnsRoot = (Get-ADDomain).DNSRoot
+          $passwordPolicy = Get-ADDefaultDomainPasswordPolicy
 
           function To-SecureStringValue([string] $PlainText) {
               ConvertTo-SecureString -String $PlainText -AsPlainText -Force
@@ -67,9 +68,19 @@
               }
           }
 
+          function Ensure-Unlocked([string] $Sam) {
+              $escapedSam = Escape-LdapFilterValue $Sam
+              $user = Get-ADUser -LDAPFilter "(sAMAccountName=$escapedSam)" -Properties LockedOut -ErrorAction Stop |
+                  Select-Object -First 1
+              if ($null -ne $user -and $user.LockedOut) {
+                  Unlock-ADAccount -Identity $user
+                  $script:changed = $true
+              }
+          }
+
           function Ensure-User([string] $Sam, [string] $Name, [string] $Password, [string[]] $Groups) {
               $escapedSam = Escape-LdapFilterValue $Sam
-              $user = Get-ADUser -LDAPFilter "(sAMAccountName=$escapedSam)" -ErrorAction Stop |
+              $user = Get-ADUser -LDAPFilter "(sAMAccountName=$escapedSam)" -Properties Enabled,LockedOut -ErrorAction Stop |
                   Select-Object -First 1
               if ($null -eq $user) {
                   New-ADUser `
@@ -87,6 +98,10 @@
                       Enable-ADAccount -Identity $Sam
                       $script:changed = $true
                   }
+                  if ($user.LockedOut) {
+                      Unlock-ADAccount -Identity $Sam
+                      $script:changed = $true
+                  }
                   Set-ADUser -Identity $Sam -PasswordNeverExpires $true -KerberosEncryptionType AES128,AES256,RC4
               }
 
@@ -95,7 +110,13 @@
               }
           }
 
+          if ($passwordPolicy.LockoutThreshold -ne 0) {
+              Set-ADDefaultDomainPasswordPolicy -Identity $dnsRoot -LockoutThreshold 0
+              $changed = $true
+          }
+
           Ensure-Group "Grupo de prueba"
+          Ensure-Unlocked "Administrator"
 
           Ensure-User "impacket.admin" "Impacket QA Admin" $AdminPassword @("Domain Admins")
           Ensure-User "impacket.operator" "Impacket QA Operator" $OperatorPassword @("Account Operators", "Backup Operators")

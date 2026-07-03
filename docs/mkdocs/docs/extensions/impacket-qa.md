@@ -21,6 +21,10 @@ By default the DHCP service is installed and authorized, but the same-subnet
 scope is absent. This matches the current DHCPM regression tests, which assert
 specific non-present-subnet error codes.
 
+The extension disables the default domain account lockout threshold and unlocks
+the built-in `Administrator` account. This keeps repeated negative-password SAMR
+tests from poisoning later runs.
+
 The spooler RPC privacy setting is intentionally lowered on QA targets. This is
 for regression compatibility with older RPRN test expectations on patched
 Windows servers, not a production recommendation. NetBIOS and spooler RPC
@@ -50,6 +54,24 @@ install_extension impacket-qa
 ## Test config templates
 
 Copy a template from `extensions/impacket-qa/files/` into the Impacket `tests` directory and replace `{{ip_range}}` with the lab subnet prefix.
+
+## Core pytest profile
+
+From the Impacket repository root on the test runner, use the helper script to
+avoid shell line-continuation mistakes:
+
+```
+bash ~/GOAD/extensions/impacket-qa/scripts/run-goad-core.sh
+```
+
+Set `REMOTE_CONFIG` or `LOG_FILE` if needed:
+
+```
+REMOTE_CONFIG=tests/dcetests.cfg LOG_FILE=goad-core.log bash ~/GOAD/extensions/impacket-qa/scripts/run-goad-core.sh
+```
+
+This core profile excludes SMB dialect, NMB, RPCH, Mimilib, and the known DHCPM
+NDR64 edge-case test.
 
 ## Runner prerequisites
 

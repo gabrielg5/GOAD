@@ -18,6 +18,10 @@ the same-subnet DHCP scope. Current DHCPM tests assert specific edge-case error
 codes for a non-present subnet. Set `impacket_qa_dhcp_scope_state=present` only
 if you need a real lease scope instead of matching those regression tests.
 
+The extension disables the default domain account lockout threshold and unlocks
+the built-in `Administrator` account. This keeps repeated negative-password SAMR
+tests from poisoning later runs.
+
 The spooler RPC privacy setting is intentionally lowered on QA targets. This is
 for regression compatibility with older RPRN test expectations on patched
 Windows servers, not a production recommendation. NetBIOS and spooler RPC
@@ -61,6 +65,24 @@ py -3 -c "from impacket.ntlm import compute_lmhash, compute_nthash; p='Imp@cket-
 
 The user hash and AES keys can be obtained with `secretsdump.py` against the
 configured DC, or computed/collected with your existing Impacket test workflow.
+
+## Core pytest profile
+
+From the Impacket repository root on the test runner, use the helper script to
+avoid shell line-continuation mistakes:
+
+```bash
+bash ~/GOAD/extensions/impacket-qa/scripts/run-goad-core.sh
+```
+
+Set `REMOTE_CONFIG` or `LOG_FILE` if needed:
+
+```bash
+REMOTE_CONFIG=tests/dcetests.cfg LOG_FILE=goad-core.log bash ~/GOAD/extensions/impacket-qa/scripts/run-goad-core.sh
+```
+
+This core profile excludes SMB dialect, NMB, RPCH, Mimilib, and the known DHCPM
+NDR64 edge-case test.
 
 ## Runner prerequisites
 
