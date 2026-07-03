@@ -9,7 +9,7 @@ import tempfile
 import time
 import uuid
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 from goad.provider.provider import Provider
 from goad.log import Log
@@ -170,6 +170,9 @@ class VsphereProvider(Provider):
             env['GOVC_NETWORK'] = self.network
         if self.resource_pool:
             env['GOVC_RESOURCE_POOL'] = self.resource_pool
+        datacenter = self._datacenter_name()
+        if datacenter:
+            env['GOVC_DATACENTER'] = datacenter
         if self.vm_folder:
             env['GOVC_FOLDER'] = self.vm_folder
         return env
@@ -190,7 +193,7 @@ class VsphereProvider(Provider):
         return False
 
     def _vm_exists(self, vm_name):
-        command = [self.govc_bin, 'vm.info', vm_name]
+        command = [self.govc_bin, 'vm.info', self._vm_ref(vm_name)]
         self._log_command(command)
         result = subprocess.run(
             command,
@@ -257,6 +260,36 @@ class VsphereProvider(Provider):
 
     def _vm_name(self, box):
         return f'{self._vm_prefix()}-{box["name"]}'
+
+    def _datacenter_name(self):
+        target = self.ovftool_target.strip()
+        if not target:
+            return ''
+        if target.startswith('vi://'):
+            target = urlparse(target).path
+        target = target.strip('/')
+        if not target:
+            return ''
+        return target.split('/')[0]
+
+    def _vm_ref(self, vm_name):
+        folder = self.vm_folder.strip()
+        if not folder:
+            datacenter = self._datacenter_name()
+            if datacenter:
+                return f'/{datacenter}/vm/{vm_name}'
+            return vm_name
+
+        if folder.startswith('/'):
+            return f'{folder.rstrip("/")}/{vm_name}'
+
+        folder = folder.strip('/')
+        datacenter = self._datacenter_name()
+        if datacenter and (folder == f'{datacenter}/vm' or folder.startswith(f'{datacenter}/vm/')):
+            return f'/{folder}/{vm_name}'
+        if datacenter:
+            return f'/{datacenter}/vm/{folder}/{vm_name}'
+        return f'{folder}/{vm_name}'
 
     def _target_url(self):
         password = self._ensure_password()
@@ -909,6 +942,7 @@ try {{
 
     def _deploy_box(self, box):
         vm_name = self._vm_name(box)
+        vm_ref = self._vm_ref(vm_name)
         if self._vm_exists(vm_name) and not self.overwrite:
             Log.info(f'Skip existing VM {vm_name}; remove this VM or use another vm_name_prefix to recreate it')
             return True
@@ -944,7 +978,7 @@ try {{
             return False
 
         if box.get('cpus') or box.get('mem'):
-            args = ['vm.change', '-vm', vm_name]
+            args = ['vm.change', '-vm', vm_ref]
             if box.get('cpus'):
                 args += ['-c', str(box['cpus'])]
             if box.get('mem'):
@@ -952,14 +986,14 @@ try {{
             if not self._run_govc(args):
                 return False
 
-        if not self._connect_network_devices(vm_name):
+        if not self._connect_network_devices(vm_ref):
             return False
 
-        if not self._run_govc(['vm.power', '-on', vm_name]):
+        if not self._run_govc(['vm.power', '-on', vm_ref]):
             return False
-        if not self._connect_network_devices(vm_name):
+        if not self._connect_network_devices(vm_ref):
             return False
-        return self._bootstrap_guest(vm_name, box)
+        return self._bootstrap_guest(vm_ref, box)
 
     def _deploy_template(self, box):
         template = str(box.get('template', '')).strip()
@@ -968,13 +1002,14 @@ try {{
             return False
 
         vm_name = self._vm_name(box)
+        vm_ref = self._vm_ref(vm_name)
         if self._vm_exists(vm_name) and not self.overwrite:
             Log.info(f'Skip existing VM {vm_name}; remove this VM or use another vm_name_prefix to recreate it')
             return True
 
         if self.overwrite:
-            self._run_govc(['vm.power', '-off', vm_name])
-            self._run_govc(['vm.destroy', vm_name])
+            self._run_govc(['vm.power', '-off', vm_ref])
+            self._run_govc(['vm.destroy', vm_ref])
 
         command = ['vm.clone', f'-vm={template}', '-on=false']
         if self.datastore:
@@ -998,14 +1033,14 @@ try {{
         if not self._run_govc(command):
             return False
 
-        if not self._connect_network_devices(vm_name):
+        if not self._connect_network_devices(vm_ref):
             return False
 
-        if not self._run_govc(['vm.power', '-on', vm_name]):
+        if not self._run_govc(['vm.power', '-on', vm_ref]):
             return False
-        if not self._connect_network_devices(vm_name):
+        if not self._connect_network_devices(vm_ref):
             return False
-        return self._bootstrap_guest(vm_name, box)
+        return self._bootstrap_guest(vm_ref, box)
 
     @staticmethod
     def _box_source_label(box):
@@ -1039,26 +1074,27 @@ try {{
         result = True
         for box in self._get_boxes():
             vm_name = self._vm_name(box)
-            self._run_govc(['vm.power', '-off', vm_name])
-            result = self._run_govc(['vm.destroy', vm_name]) and result
+            vm_ref = self._vm_ref(vm_name)
+            self._run_govc(['vm.power', '-off', vm_ref])
+            result = self._run_govc(['vm.destroy', vm_ref]) and result
         return result
 
     def start(self):
         result = True
         for box in self._get_boxes():
-            result = self._run_govc(['vm.power', '-on', self._vm_name(box)]) and result
+            result = self._run_govc(['vm.power', '-on', self._vm_ref(self._vm_name(box))]) and result
         return result
 
     def stop(self):
         result = True
         for box in self._get_boxes():
-            result = self._run_govc(['vm.power', '-off', self._vm_name(box)]) and result
+            result = self._run_govc(['vm.power', '-off', self._vm_ref(self._vm_name(box))]) and result
         return result
 
     def status(self):
         result = True
         for box in self._get_boxes():
-            result = self._run_govc(['vm.info', self._vm_name(box)]) and result
+            result = self._run_govc(['vm.info', self._vm_ref(self._vm_name(box))]) and result
         return result
 
     def start_vm(self, vm_name):
