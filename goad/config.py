@@ -120,9 +120,9 @@ class Config:
         config.set('impacket_legacy_vsphere', 'dc2012r2_template', '')
         config.set('impacket_legacy_vsphere', 'win2008r2_template', '')
         config.set('impacket_legacy_vsphere', 'win7_template', '')
-        config.set('impacket_legacy_vsphere', '; shared guest credential files for legacy templates; fall back to [vsphere] paths or values')
-        config.set('impacket_legacy_vsphere', 'guest_username_path', '')
-        config.set('impacket_legacy_vsphere', 'guest_password_path', '')
+        config.set('impacket_legacy_vsphere', '; shared guest credentials for legacy templates; fall back to [vsphere] values')
+        config.set('impacket_legacy_vsphere', 'guest_username', '')
+        config.set('impacket_legacy_vsphere', 'guest_password', '')
         config.write(cfgfile)
         cfgfile.close()
 

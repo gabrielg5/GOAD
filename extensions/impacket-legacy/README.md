@@ -16,21 +16,22 @@ dc2012r2_template = /Datacenter/vm/Templates/win2012r2
 win2008r2_template = /Datacenter/vm/Templates/win2008r2
 win7_template = /Datacenter/vm/Templates/win7
 
-guest_username_path = /secure/goad/legacy.user
-guest_password_path = /secure/goad/legacy.pass
+guest_username = Administrator
+guest_password = TemplatePassword123!
 ```
 
 If these credentials should be shared by every vSphere VM source, use the
-global paths in `[vsphere]` instead:
+global values in `[vsphere]` instead:
 
 ```ini
 [vsphere]
-vsphere_guest_username_path = /secure/goad/legacy.user
-vsphere_guest_password_path = /secure/goad/legacy.pass
+vsphere_guest_username = Administrator
+vsphere_guest_password = TemplatePassword123!
 ```
 
-The files should contain only the username or password value. The provider
-reads them on the orchestrator VM and masks the password in command logs.
+The provider reads these values on the orchestrator VM and masks the password
+in command logs. The generated Ansible inventory contains the values directly,
+so keep `~/.goad/goad.ini` and workspace inventories private.
 
 ## IPs
 

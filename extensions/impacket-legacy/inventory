@@ -1,11 +1,8 @@
-{% macro file_lookup(path) -%}
-"{{ '{{' }} lookup('file', '{{ path }}') | trim {{ '}}' }}"
-{%- endmacro %}
 {% macro credential_vars() -%}
-{%- set user_path = config.get_value('impacket_legacy_vsphere', 'guest_username_path', config.get_value('vsphere', 'vsphere_guest_username_path', '')) -%}
-{%- set password_path = config.get_value('impacket_legacy_vsphere', 'guest_password_path', config.get_value('vsphere', 'vsphere_guest_password_path', '')) -%}
-{%- if user_path %} ansible_user={{ file_lookup(user_path) }}{%- endif -%}
-{%- if password_path %} ansible_password={{ file_lookup(password_path) }}{%- endif -%}
+{%- set username = config.get_value('impacket_legacy_vsphere', 'guest_username', config.get_value('vsphere', 'vsphere_guest_username', '')) -%}
+{%- set password = config.get_value('impacket_legacy_vsphere', 'guest_password', config.get_value('vsphere', 'vsphere_guest_password', '')) -%}
+{%- if username %} ansible_user={{ username | tojson }}{%- endif -%}
+{%- if password %} ansible_password={{ password | tojson }}{%- endif -%}
 {%- endmacro %}
 [default]
 dc2012r2 ansible_host={{ip_range}}.40 dns_domain=impacketlegacy dict_key=dc2012r2{{ credential_vars() }}

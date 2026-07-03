@@ -30,28 +30,28 @@ win7_template = /Datacenter/vm/Templates/win7
 The provider clones these with `govc vm.clone`, then applies the same VMware
 Tools bootstrap used by the GOAD vSphere provider.
 
-## Guest credential files
+## Guest credentials
 
-Use shared credential files for the legacy templates:
+Use shared credentials for the legacy templates:
 
 ```ini
 [impacket_legacy_vsphere]
-guest_username_path = /secure/goad/legacy.user
-guest_password_path = /secure/goad/legacy.pass
+guest_username = Administrator
+guest_password = TemplatePassword123!
 ```
 
 If these credentials should be shared by every vSphere VM source, use the
-global vSphere paths:
+global vSphere values:
 
 ```ini
 [vsphere]
-vsphere_guest_username_path = /secure/goad/legacy.user
-vsphere_guest_password_path = /secure/goad/legacy.pass
+vsphere_guest_username = Administrator
+vsphere_guest_password = TemplatePassword123!
 ```
 
-The files are read by the orchestrator VM. The password is masked in provider
-command logs. The generated Ansible inventory keeps file lookups instead of
-writing the password value directly.
+The password is masked in provider command logs. The generated Ansible
+inventory contains the values directly, so keep `~/.goad/goad.ini` and
+workspace inventories private.
 
 ## Install
 

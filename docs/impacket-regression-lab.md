@@ -320,7 +320,7 @@ Add one GOAD extension for the automated core and keep legacy coverage in a sepa
 2. `extensions/impacket-legacy`
    - vSphere-only first pass.
    - Adds `dc2012r2`, `win2008r2`, and `win7` from configurable vCenter template paths.
-   - Uses shared guest username/password file paths for the legacy templates, with `[vsphere]` paths as fallback.
+   - Uses shared guest username/password values for the legacy templates, with `[vsphere]` values as fallback.
    - Renders offsets through the selected GOAD CIDR, so `.40`, `.41`, and `.42` do not assume a `/24`.
    - Enables SMB1 and SMB signing-off policies only on legacy targets.
    - Domain promotion/join policy is the next decision point after the actual template baseline is known.
