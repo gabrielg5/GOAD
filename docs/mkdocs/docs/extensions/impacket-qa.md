@@ -23,7 +23,8 @@ specific non-present-subnet error codes.
 
 The spooler RPC privacy setting is intentionally lowered on QA targets. This is
 for regression compatibility with older RPRN test expectations on patched
-Windows servers, not a production recommendation.
+Windows servers, not a production recommendation. NetBIOS and spooler RPC
+compatibility changes reboot affected hosts when they first change.
 
 ## Default target
 

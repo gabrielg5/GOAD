@@ -20,7 +20,8 @@ if you need a real lease scope instead of matching those regression tests.
 
 The spooler RPC privacy setting is intentionally lowered on QA targets. This is
 for regression compatibility with older RPRN test expectations on patched
-Windows servers, not a production recommendation.
+Windows servers, not a production recommendation. NetBIOS and spooler RPC
+compatibility changes reboot affected hosts when they first change.
 
 ## Default pytest target
 

@@ -426,6 +426,7 @@
           }
 
           $Ansible.Changed = $changed
+      register: impacket_qa_netbios_tcpip
 
     - name: Allow legacy spooler RPC auth level for RPRN tests
       ansible.windows.win_regedit:
@@ -444,6 +445,12 @@
       when:
         - impacket_qa_disable_spooler_rpc_privacy | bool
         - impacket_qa_spooler_rpc_privacy.changed
+
+    - name: Reboot after compatibility changes
+      ansible.windows.win_reboot:
+      when:
+        - impacket_qa_netbios_tcpip.changed or
+          (impacket_qa_disable_spooler_rpc_privacy | bool and impacket_qa_spooler_rpc_privacy.changed)
 
 - name: Prepare optional Mimilib target
   hosts: impacket_qa_mimilib
