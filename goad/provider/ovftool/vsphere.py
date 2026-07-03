@@ -288,24 +288,30 @@ class VsphereProvider(Provider):
             return ''
         return target.split('/')[0]
 
-    def _vm_ref(self, vm_name):
+    def _vm_folder_ref(self):
         folder = self.vm_folder.strip()
         if not folder:
             datacenter = self._datacenter_name()
             if datacenter:
-                return f'/{datacenter}/vm/{vm_name}'
-            return vm_name
+                return f'/{datacenter}/vm'
+            return ''
 
         if folder.startswith('/'):
-            return f'{folder.rstrip("/")}/{vm_name}'
+            return folder.rstrip('/')
 
         folder = folder.strip('/')
         datacenter = self._datacenter_name()
         if datacenter and (folder == f'{datacenter}/vm' or folder.startswith(f'{datacenter}/vm/')):
-            return f'/{folder}/{vm_name}'
+            return f'/{folder}'
         if datacenter:
-            return f'/{datacenter}/vm/{folder}/{vm_name}'
-        return f'{folder}/{vm_name}'
+            return f'/{datacenter}/vm/{folder}'
+        return folder
+
+    def _vm_ref(self, vm_name):
+        folder_ref = self._vm_folder_ref()
+        if folder_ref:
+            return f'{folder_ref}/{vm_name}'
+        return vm_name
 
     def _target_url(self):
         password = self._ensure_password()
@@ -1031,7 +1037,7 @@ try {{
         if self.datastore:
             command.append(f'-ds={self.datastore}')
         if self.vm_folder:
-            command.append(f'-folder={self.vm_folder}')
+            command.append(f'-folder={self._vm_folder_ref()}')
         if self.resource_pool:
             command.append(f'-pool={self.resource_pool}')
         if self.network:
