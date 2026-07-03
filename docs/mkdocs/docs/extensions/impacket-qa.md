@@ -26,6 +26,11 @@ for regression compatibility with older RPRN test expectations on patched
 Windows servers, not a production recommendation. NetBIOS and spooler RPC
 compatibility changes reboot affected hosts when they first change.
 
+Current Windows Server 2019 targets can have UDP/137 listening and NetBIOS names
+registered while still not satisfying Impacket's NBSTAT node-status tests. Keep
+`tests/SMB_RPC/test_nmb.py` in the legacy SMB/NetBIOS profile unless it is
+validated in the specific provider network.
+
 ## Default target
 
 Use `dc01` / `kingslanding.sevenkingdoms.local` for the default Impacket remote pytest profile. Some current LDAP tests derive `baseDN` from only the first two DNS labels, so `sevenkingdoms.local` is safer than the child domain `north.sevenkingdoms.local` for the canonical profile.

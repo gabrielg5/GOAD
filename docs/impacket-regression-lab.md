@@ -109,7 +109,7 @@ On each DC used for remote pytest:
 - DHCP Server installed, authorized, and running for `test_dhcpm.py`. The default `impacket-qa` state keeps the same-subnet scope absent because current DHCPM tests assert non-present-subnet edge-case responses.
 - RemoteRegistry installed/enabled/running; RRP tests can start it, but it should be available at snapshot time.
 - Print Spooler running for RPRN tests. For the QA profile, patched Windows targets should lower `RpcAuthnLevelPrivacyEnabled` to `0` so older RPRN regression expectations still exercise Impacket behavior instead of stopping on spooler hardening.
-- TCP/IP NetBIOS enabled for NMB tests that query UDP/137 directly.
+- TCP/IP NetBIOS enabled for diagnostic/name-query coverage. Impacket NBSTAT node-status tests in `tests/SMB_RPC/test_nmb.py` may still require a legacy SMB/NetBIOS target even when a modern DC is listening on UDP/137.
 - Task Scheduler, Event Log, Service Control Manager, WMI/DCOM available.
 - Mimilib RPC server running only on the designated Mimilib target, preferably `dc01`.
 
@@ -208,7 +208,7 @@ Rollback to `pre-run` after each full remote run. Refresh `pre-run` only after a
 | Secretsdump DRSUAPI/VSS | `dcetests-goad-dc01.cfg` | Tier 1 |
 | MSSQL examples | `srv02`, `srv03` | Tier 1 |
 | ADCS and web enrollment examples | `dc01`, `srv03` | Tier 1 |
-| SMB1/NetBIOS/Unicode pytest | `dcetests-smb1-win7.cfg` | Tier 3 |
+| NMB node-status, SMB1, NetBIOS, Unicode pytest | `dcetests-smb1-win7.cfg` | Tier 3 |
 | SMB2.0/2.1 pytest | `dcetests-smb21-win7.cfg` | Tier 3 |
 | SMB3 pytest | `dcetests-smb3-srv02.cfg` | Tier 1 |
 | RPCH and Exchange examples | `dcetests-exchange.cfg` | Tier 2 |
