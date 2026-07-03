@@ -201,7 +201,7 @@ Rollback to `pre-run` after each full remote run. Refresh `pre-run` only after a
 | --- | --- | --- |
 | Local unit tests, parsers, packet structures, SMB server unit tests | none | host/runner only |
 | Windows-only local DPAPI tests | Windows host or Windows runner | host/runner only |
-| General DCE/RPC remote tests | `dcetests-goad-dc01.cfg` with GOAD expected-delta deselections | Tier 1 |
+| General DCE/RPC remote tests | `dcetests-goad-dc01.cfg`; pytest command policy belongs in Impacket | Tier 1 |
 | LDAP and LDAPS | `dcetests-goad-dc01.cfg` | Tier 1 with LDAPS |
 | DHCPM RPC | `dcetests-goad-dc01.cfg` | Tier 1 with DHCP |
 | Mimilib RPC | `dcetests-goad-dc01.cfg` | Tier 1 with Mimilib |
@@ -215,9 +215,10 @@ Rollback to `pre-run` after each full remote run. Refresh `pre-run` only after a
 | RODC behavior | `dcetests-rodc.cfg` | Tier 2 add-on |
 | NTLM relay | WebDAV/IIS client plus no-signing SMB target | Tier 2 or Tier 3 |
 
-The GOAD modern core profile has known deltas from Impacket's historical
-Windows Server 2012 R2 test baseline. Keep these out of the expected-green GOAD
-run and include them only in strict investigation runs:
+Validation against the GOAD Windows Server 2019 `dc01` target exposed deltas
+from Impacket's historical Windows Server 2012 R2 test baseline. Track these
+from the Impacket side as old-OS assumptions, modern hardening differences, or
+potential Impacket bugs:
 
 - BKRP retrieve-backup-key certificate parsing.
 - DRSUAPI pytest calls over `\PIPE\lsass`; DRSUAPI itself is validated with `secretsdump.py`.
@@ -256,7 +257,7 @@ Use existing extensions for:
 The lab is ready when:
 
 - `pytest -m "not remote"` runs on the runner and on a Windows runner/host for Windows-only local tests.
-- DCE/RPC, LDAP/LDAPS, DHCPM, DRSUAPI, RRP, SCMR, TSCH, WMI/DCOM, SRVS/WKST, NRPC, and secretsdump tests pass against `dc01`.
+- DCE/RPC, LDAP/LDAPS, DHCPM, DRSUAPI, RRP, SCMR, TSCH, WMI/DCOM, SRVS/WKST, NRPC, and secretsdump coverage can be run against `dc01` using Impacket-owned command profiles.
 - SMB tests pass through separate SMB1, SMB2.1, and SMB3 profiles.
 - RPCH tests either pass against Exchange or are explicitly excluded from the core run.
 - Example smoke tests cover SMB exec, WMI exec, secretsdump, Kerberos, LDAP/ACL, MSSQL, ADCS, relay, and Exchange where installed.

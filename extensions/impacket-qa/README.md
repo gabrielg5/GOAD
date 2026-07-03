@@ -66,24 +66,14 @@ py -3 -c "from impacket.ntlm import compute_lmhash, compute_nthash; p='Imp@cket-
 The user hash and AES keys can be obtained with `secretsdump.py` against the
 configured DC, or computed/collected with your existing Impacket test workflow.
 
-## Core pytest profile
+## Test execution
 
-From the Impacket repository root on the test runner, use the helper script to
-avoid shell line-continuation mistakes. By default this runs the expected-green
-GOAD modern profile:
+This extension prepares the lab and provides remote config templates. Pytest
+commands, deselection policy, and expected-failure handling should live in the
+Impacket repository, following `TESTING.md`.
 
-```bash
-bash ~/GOAD/extensions/impacket-qa/scripts/run-goad-core.sh
-```
-
-Set `REMOTE_CONFIG` or `LOG_FILE` if needed:
-
-```bash
-REMOTE_CONFIG=tests/dcetests.cfg LOG_FILE=goad-core.log bash ~/GOAD/extensions/impacket-qa/scripts/run-goad-core.sh
-```
-
-This profile excludes SMB dialect, NMB, RPCH, Mimilib, the known DHCPM NDR64
-edge-case test, and the currently classified GOAD/Server 2019 deltas:
+During validation against Windows Server 2019 `dc01`, these strict-run deltas
+were observed and should be tracked from the Impacket side:
 
 - BKRP retrieve-backup-key certificate parsing.
 - DRSUAPI pytest calls over `\PIPE\lsass`; DRSUAPI itself is validated with
@@ -93,12 +83,6 @@ edge-case test, and the currently classified GOAD/Server 2019 deltas:
 - RRP `BaseRegQueryMultipleValues` fixed-buffer cases.
 - SRVS `NetrServerStatisticsGet` with a null service name.
 - TSCH SASEC `SAGetNSAccountInformation` fixed-buffer cases.
-
-Run strict mode to include those deltas for investigation:
-
-```bash
-STRICT=1 bash ~/GOAD/extensions/impacket-qa/scripts/run-goad-core.sh
-```
 
 Validate DRSUAPI with:
 
